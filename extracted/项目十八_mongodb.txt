@@ -1,0 +1,776 @@
+
+
+项目十八：mongodb
+
+## 
+项目十八：mongodb
+
+Back to document
+一、MongoDB安装
+
+二、MongoDB基本操作之CRUD
+
+1、创建文档
+
+​
+Shell
+Run Code
+Copy
+999
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+> use test
+switched to db test
+> show collections
+#通过insertOne （自动创建对应的集合）
+> db.accounts.insertOne(
+... {
+...   _id:
+"account1"
+,
+...   name:
+"alice"
+,
+...   balance:
+100
+... }
+... )
+{
+"acknowledged"
+:
+true
+,
+"insertedId"
+:
+"account1"
+}
+
+> db.accounts.insertOne(
+... {
+...   name:
+"bob"
+,
+...   balance:
+50
+...  }
+... )
+{
+
+"acknowledged"
+:
+true
+,
+
+"insertedId"
+: ObjectId(
+"6138a69764efe614d70e3c7d"
+)
+}
+
+对象主键： ObjectId(
+"6138a69764efe614d70e3c7d"
+)
+
+#创建多个文档
+ordered： 写入文档顺序，默认为true
+
+> db.accounts.insertMany( [
+... {
+...   name:
+"charlie"
+,
+...   balance:
+500
+... },
+2、读取文档
+
+​
+999
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+
+命令： db.collection.find()
+
+语法： db.collection.find(<query>,<projection>)
+
+#读取全部文档
+> db.accounts.find()
+{
+"_id"
+:
+"account1"
+,
+"name"
+:
+"alice"
+,
+"balance"
+:
+100
+}
+{
+"_id"
+: ObjectId(
+"6138a69764efe614d70e3c7d"
+),
+"name"
+:
+"bob"
+,
+"balance"
+:
+50
+}
+{
+"_id"
+: ObjectId(
+"6138a73f64efe614d70e3c7e"
+),
+"name"
+:
+"charlie"
+,
+"balance"
+:
+500
+}
+{
+"_id"
+: ObjectId(
+"6138a73f64efe614d70e3c7f"
+),
+"name"
+:
+"david"
+,
+"balance"
+:
+200
+}
+{
+"_id"
+: ObjectId(
+"6138c72064efe614d70e3c80"
+),
+"name"
+:
+"george"
+,
+"balance"
+:
+1000
+}
+{
+"_id"
+: ObjectId(
+"6138c7f064efe614d70e3c81"
+),
+"name"
+:
+"xhaihua"
+,
+"balance"
+:
+1200
+}
+{
+"_id"
+: ObjectId(
+"6138c7f064efe614d70e3c82"
+),
+"name"
+:
+"test"
+,
+"balance"
+:
+880
+}
+{
+"_id"
+: {
+"accountNo"
+:
+"001"
+,
+"type"
+:
+"savings"
+},
+"name"
+:
+"irene"
+,
+"balance"
+:
+800
+}
+
+> db.accounts.find().pretty
+{
+"_id"
+:
+"account1"
+,
+"name"
+:
+"alice"
+,
+"balance"
+:
+100
+}
+{
+
+"_id"
+: ObjectId(
+"6138a69764efe614d70e3c7d"
+),
+
+"name"
+:
+"bob"
+,
+
+"balance"
+:
+50
+}
+{
+
+"_id"
+: ObjectId(
+"6138a73f64efe614d70e3c7e"
+),
+
+"name"
+:
+"charlie"
+,
+
+"balance"
+:
+500
+}
+
+#匹配查询 （根据name查询）
+> db.accounts.find({name:
+"alice"
+}).pretty()
+{
+"_id"
+:
+"account1"
+,
+"name"
+:
+"alice"
+,
+"balance"
+:
+100
+}
+
+> db.accounts.find({name:
+"alice"
+,balance:
+100
+}).pretty()
+{
+"_id"
+:
+"account1"
+,
+"name"
+:
+"alice"
+,
+"balance"
+:
+100
+}
+​
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+#游标
+> var myCursor
+=
+db.accounts.find().noCursorTimeout()
+> myCursor[1]
+{
+
+"_id"
+: ObjectId(
+"6138a69764efe614d70e3c7d"
+),
+
+"name"
+:
+"bob"
+,
+
+"balance"
+:
+50
+}
+
+myCursor.close()
+
+#游标函数
+
+cursor.hasNext()
+cursor.forEach()
+> myCursor.forEach(printjson)
+
+cursor.limit(<number>) 返回指定数量的文档
+cursor.skip(<number>) 跳过指定数量的文档 在limit之前
+cursor.sort(<field>)
+---
+>sort({balance:
+-1
+})
+
+顺序： sort---》skip
+-----
+》limit
+
+​
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+#投影
+
+> db.accounts.find({},{name:1}).limit(5)
+{
+"_id"
+:
+"account1"
+,
+"name"
+:
+"alice"
+}
+{
+"_id"
+: ObjectId(
+"6138a69764efe614d70e3c7d"
+),
+"name"
+:
+"bob"
+}
+{
+"_id"
+: ObjectId(
+"6138a73f64efe614d70e3c7e"
+),
+"name"
+:
+"charlie"
+}
+{
+"_id"
+: ObjectId(
+"6138a73f64efe614d70e3c7f"
+),
+"name"
+:
+"david"
+}
+{
+"_id"
+: ObjectId(
+"6138c72064efe614d70e3c80"
+),
+"name"
+:
+"george"
+}
+
+> db.accounts.find({},{name:1,balance:1}).limit(5)
+{
+"_id"
+:
+"account1"
+,
+"name"
+:
+"alice"
+,
+"balance"
+:
+100
+}
+{
+"_id"
+: ObjectId(
+"6138a69764efe614d70e3c7d"
+),
+"name"
+:
+"bob"
+,
+"balance"
+:
+50
+}
+{
+"_id"
+: ObjectId(
+"6138a73f64efe614d70e3c7e"
+),
+"name"
+:
+"charlie"
+,
+"balance"
+:
+500
+}
+{
+"_id"
+: ObjectId(
+"6138a73f64efe614d70e3c7f"
+),
+"name"
+:
+"david"
+,
+"balance"
+:
+200
+}
+{
+"_id"
+: ObjectId(
+"6138c72064efe614d70e3c80"
+),
+"name"
+:
+"george"
+,
+"balance"
+:
+1000
+}
+> db.accounts.find({},{name:1,balance:1,_id:0}).limit(5)
+{
+"name"
+:
+"alice"
+,
+"balance"
+:
+100
+}
+{
+"name"
+:
+"bob"
+,
+"balance"
+:
+50
+}
+{
+"name"
+:
+"charlie"
+,
+"balance"
+:
+500
+}
+{
+"name"
+:
+"david"
+,
+"balance"
+:
+200
+}
+{
+"name"
+:
+"george"
+,
+"balance"
+:
+1000
+}
+
+> db.accounts.find({},{name:1,contact:{
+$elemMatch
+:{
+$gt
+:
+"Alabama"
+}}})
+{
+"_id"
+:
+"account1"
+,
+"name"
+:
+"alice"
+}
+{
+"_id"
+: ObjectId(
+"6138a69764efe614d70e3c7d"
+),
+"name"
+:
+"bob"
+}
+{
+"_id"
+: ObjectId(
+"6138a73f64efe614d70e3c7e"
+),
+"name"
+:
+"charlie"
+}
+{
+"_id"
+: ObjectId(
+"6138a73f64efe614d70e3c7f"
+),
+"name"
+:
+"david"
+}
+{
+"_id"
+: ObjectId(
+"6138c72064efe614d70e3c80"
+),
+"name"
+:
+"george"
+}
+{
+"_id"
+: ObjectId(
+"6138c7f064efe614d70e3c81"
+),
+"name"
+:
+"xhaihua"
+}
+{
+"_id"
+: ObjectId(
+"6138c7f064efe614d70e3c82"
+),
+"name"
+:
+"test"
+}
+{
+"_id"
+: {
+"accountNo"
+:
+"001"
+,
+"type"
+:
+"savings"
+},
+"name"
+:
+"irene"
+}
+{
+"_id"
+: ObjectId(
+"6138cff364efe614d70e3c83"
+),
+"name"
+:
+"jack"
+,
+"contact"
+: [
+"US"
+] }
+{
+"_id"
+: ObjectId(
+"6138cff364efe614d70e3c84"
+),
+"name"
+:
+"karen"
+,
+"contact"
+: [
+"Beijing"
+] }
+
+3、更新文档
+
+​
+9
+1
+
+4、删除文档
+
+​
+9
+1
+
+三、MongoDB索引
+
+四、MongoDB复制集
+
+主从集群（副本集集群）是一组MongoDB维护相同数据集的实例，一个副本集包含多个数据承载节点和一个仲裁节点（可选），在数据承载节点中，只有一个成员视为主要节点，而其他节点被视为次要节点
+
+奇数个，至少要3台
+
+primary： 主节点
+
+secondary： 次要节点
+
+主从集群同步机制：
+
+如何保证A（高可用）：  同步机制（通过Oplog），心跳机制，选举机制，副本回滚
+
+同步机制：   通过Oplog    （local.oplog.rs 集合）
+
+五、MongoDB数据分片
+
+六： MongoDB数据安全
+
+​
+
+If you get gains，please give a like
+

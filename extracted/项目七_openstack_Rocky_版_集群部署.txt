@@ -1,0 +1,669 @@
+
+
+项目七：openstack（Rocky 版）集群部署
+
+## 
+项目七：openstack（Rocky 版）集群部署
+
+Back to document
+一、基础环境配置
+
+1、环境
+
+1.1）系统
+
+​
+Shell
+Run Code
+Copy
+9
+1
+2
+CentOS Linux release
+7
+.8.2003 (Core)
+5
+.9.3-1.el7.elrepo.x86_64
+1.2）拓扑图
+
+2）基础配置
+
+2.1） 更新yum源和安装常用软件
+
+​
+Shell
+Run Code
+Copy
+9
+1
+yum
+-y
+install  epel-release bash-completion.noarch bash-completion-extras.noarch
+vim
+net-tools
+2.2）配置/etc/hosts文件
+
+​
+Shell
+Run Code
+Copy
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+[root@controller01 keystone]
+# cat /etc/hosts
+127
+.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+
+192
+.168.10.60  haproxy01
+192
+.168.10.61  haproxy02
+192
+.168.10.30  controller
+
+192
+.168.10.70  ceph01
+192
+.168.10.71  ceph02
+192
+.168.10.72  ceph03
+
+192
+.168.10.62  controller01
+192
+.168.10.63  controller02
+192
+.168.10.64  controller03
+
+192
+.168.10.65  computer01
+192
+.168.10.66  computer02
+
+192
+.168.10.73  mysql
+
+2.3）配置时间同步（chrony）
+
+​
+Shell
+Run Code
+Copy
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+#安装（所有节点）
+yum
+-y
+install chrony
+
+#配置chrony.conf
+
+A: 服务端配置（以haproxy01为服务端）
+[root@haproxy01 ~]
+# vim /etc/chrony.conf
+
+# Use public servers from the pool.ntp.org project.
+# Please consider joining the pool (http://www.pool.ntp.org/join.html).
+server ntp1.aliyun.com iburst
+server time1.aliyun.com iburst
+server
+1
+.centos.pool.ntp.org iburst
+driftfile /var/lib/chrony/drift
+makestep
+1
+.0
+3
+rtcsync
+# Allow NTP client access from local network. （允许同步的网段）
+allow
+192
+.168.10.0/24
+# Specify directory for log files.
+logdir /var/log/chrony
+
+#log measurements statistics tracking
+
+B： 客户端配置
+[root@haproxy02 ~]
+# cat /etc/chrony.conf
+# Use public servers from the pool.ntp.org project.
+# Please consider joining the pool (http://www.pool.ntp.org/join.html).
+server
+192
+.168.10.60 iburst
+
+#重启服务（所有节点）
+systemctl
+restart
+chronyd.service
+systemctl enable chronyd.service
+
+#时间同步
+2.4）关闭 firewalld 和 Selinux
+
+​
+9
+1
+2
+3
+4
+5
+6
+7
+systemctl disable firewalld
+systemctl
+stop
+firewalld
+
+#selinux
+sed
+
+-i
+
+'s/SELINUX=enforcing/SELINUX=disabled/'
+/etc/selinux/config
+grep
+
+SELINUX
+=
+disabled /etc/selinux/config
+setenforce
+0
+2.5) 安装 openstack 源（所有节点）
+
+​
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+
+cat
+>/etc/yum.repos.d/CentOS-OpenStack-rocky.repo
+<<-EOF
+
+[centotack-rocky]
+name=openstack-rocky
+baseurl=https://mirrors.aliyun.com/centos/7/cloud/x86_64/openstack-rocky/
+enabled=1
+gpgcheck=0
+[qume-kvm]
+name=qemu-kvm
+baseurl= https://mirrors.aliyun.com/centos/7/virt/x86_64/kvm-common/
+enabled=1
+gpgcheck=0
+EOF
+
+2.6）安装openstack-client（controller节点）
+
+​
+9
+1
+yum install python-openstackclient
+-y
+2.7) 更新系统，并重启
+
+​
+9
+1
+2
+3
+yum upgrade
+-y
+
+init
+6
+3) ceph集群部署（通过ceph-deploy）
+
+节点： ceph01，ceph02，ceph03
+
+3.1）添加 ssh 信任，以便于ceph-deploy 快速部署
+
+​
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+#所有节点创建（ceph01，ceph02，ceph03）
+useradd cephadmin &&
+echo
+
+"test123@"
+|passwd
+--stdin
+cephadmin
+#在管理节点上（ceph01）
+su
+
+-
+cephadmin
+ssh-keygen  （保持默认即可）
+for
+i
+in
+
+1
+
+2
+
+3
+;do ssh-copy-id cephadmin@ceph
+$i
+;done (输入密码）
+
+exit
+echo
+
+"cephadmin ALL = (root) NOPASSWD:ALL"
+|
+sudo
+
+tee
+/etc/sudoers.d/cephadmin
+chmod
+
+0400
+/etc/sudoers.d/cephadmin
+
+3.2）部署ceph-deploy节点
+
+3.3）安装ceph ，创建集群
+
+3.3）ceph常用命令
+
+4）MySQL 5.7 Galera CLuster 集群部署
+
+注意： openstack集群，使用galera cluster集群存在一些问题，本博客先用mysql单节点
+
+节点： controller01,controller02,controller03
+
+Galera Cluster ：
+集成了Galera插件的MySQL集群，是一种新型的，数据不共享的，高度冗余的高可用方案，多节点都可以作为主节点，节点是对等的，当有客户端要写入或者读取数据时，随便连接哪个实例都是一样的，读到的数据是相同的，写入某一个节点之后，集群自己会将新数据同步到其它节点上面，这种架构不共享任何数据，是一种高冗余架构。相比传统架构，Galera Cluster解决的最核心问题是，在三个实例（节点）之间，它们的关系是对等的，multi-master架构的，在多节点同时写入的时候，能够保证整个集群数据的一致性，完整性与正确性。
+
+4.1）查看和卸载 系统原有的 mariadb、mysql （必须卸载，否则后期会有问题）
+
+4.2)集群部署
+
+4.3）centos7.8上安装mysql5.7(通过rpm安装）
+
+5) rabbitmq镜像队列集群
+
+节点： controller01,controller02,controller03
+
+5.1)安装单节点rabbitmq3.8
+
+5.2)配置rabbitmq镜像队列集群
+
+安装5.1同样的方式，在controller02，controller03上安装rabbitmq
+
+6)
+Openstack 集群，及常用服务的 高可用 haproxy配置
+
+节点：controller01，controller02，controller03
+
+1）安装haproxy和keepalived
+
+2) 配置haproxy.cfg(2节点配置一样）
+
+3）配置keepalived.conf
+
+7）安装memcached服务
+
+节点： controller01,controller02,controller03
+
+二）Keystone部署
+
+参照官网部署：
+https://docs.openstack.org/keystone/queens/install/
+
+1）配置数据库  （任意controller 节点操作）
+
+2)keystone 包安装（所有 controller 节点）
+
+3 ) 编辑keystone 配置 （所有 controller 节点）
+
+4)初始化数据库 keystone （all controller 节点操作）
+
+5)初始化 Fernet key仓库  （all controller 节点操作）
+
+6 )keystone 身份认证服务引导API 配置 （任意controller节点操作 ）
+
+7) 配置apache服务（所有节点）
+
+8) 创建 USER： admin、demo 的认证变量  （所有 controller 节点）
+
+后期验证keystone 使用
+
+9) 创建 domain、projects、users、roles (在controller01节点操作）
+
+10）验证keystone服务（controller01）
+
+11)查看信息等命令
+
+三）Glance部署
+
+参照官网部署：https://docs.openstack.org/glance/queens/install/
+
+1）配置数据库
+
+2)配置glance 用户和 API 信息
+
+3）Glance 包安装 （所有controller-node）
+
+4) 编辑配置文件 （所有controller-node）
+
+5）初始化 Glance 数据库  （任意controller 节点操作）
+
+6)启动服务并设置开机自启动 （all-controller-node）
+
+7) 测试  （任意 controller-node）
+
+8） openstack集群 Glance-server 使用Ceph 存储
+
+四）Nova部署
+
+参照官网部署：
+https://docs.openstack.org/nova/pike/install/
+
+1、控制节点部署
+
+1.1）配置数据库及配置 Nova用户 和API 信息
+
+1.2）Nova 包安装 及配置
+
+1.3) 配置Nova配置文件
+
+1.4) 修改 /etc/httpd/conf.d/00-nova-placement-api.conf
+
+1.5）Nova初始化数据
+
+1.6）启动Nova服务
+
+2）计算节点部署 （在所有computer节点）
+
+2.1）安装nova软件
+
+2.2）配置Nova文件
+
+2.3)启动服务
+
+3) 验证操作
+
+五）Neutron部署
+
+参照官网部署：
+https://docs.openstack.org/neutron/rocky/install/install-rdo.html
+
+实现方式： openvswitch+vxlan网络
+
+1） controller01、controller02、controller03既是控制节点也是网络节点
+
+2）每个节点3张网卡
+
+ens33   桥接网络 （可以连接到外网下载软件）
+
+ens36   NAT网络 （
+模拟OpenStack的外网）
+
+ens37      仅主机网络  （Tenant(VM) 网络 是承载VxLAN的底层网络）
+
+3）计算节点2张网卡
+
+ens33   桥接网络 （可以连接到外网下载软件）
+
+ens36
+仅主机网络  （Tenant(VM) 网络 是承载VxLAN的底层网络）
+
+1) 在Keystone数据库中注册Neutron相关服务
+
+（任意一台控制节点操作）
+
+1.1）neutron 数据库配置
+
+1.2) 注册Neutron相关服务
+
+1.3)在控制节点安装neutron网络组件
+
+# 关于neutron的网络提供了两种方式：
+
+https://docs.openstack.org/neutron/rocky/install/controller-install-option1-rdo.html
+
+Networking Option 2: Self-service networks
+
+1.4) 修改元数据代理
+
+1.4) 配置Compute服务以使用网络服务
+
+1.5）neutron配置文件
+
+自助服务网络
+
+1.6）
+配置模块化层2（ML2）插件
+
+在neutron中有一个Core-plugin叫做
+ML2（Modular Layer 2
+），就是负责管理L2的网络连接，ML2中主要包括network,subent,port三类核心资源
+
+Service-plugin，即为出Core-plugin以外的其它的plugin，包括L3router，firewall，loadblancer，vpn，metering等等，主要实现L3-L7的网络服务
+
+按照用户的权限创建网络，neutron L2 network可以分为：
+
+Provider network：管理员创建的跟物理网络直接绑定到一块，即虚拟机用的网络就是物理网络
+
+Tenant network：租户普通用户创建的网络。物理网络对创建者透明，用户不需要考虑底层
+
+根据网络类型，neutron L2 network可以分为
+
+flat network：基于不实用vlan的物理网络实现的虚拟网络。所有网络都在一个网络中。不推荐使用，用不到生产环境中。
+
+local network：一个只允许在本服务器内通信的虚拟网络，所有服务都装在一台机器上 不推荐中。
+
+vlan network：基于物理vlan网络实现的虚拟网络。共享同一个物理网络的多个vlan网络是相互隔离的，并且可以使用重叠IP地址空间。最重要的一点是有效的VLAN ID 范围为1-4095
+
+GRE network：（通过路由封装网络）：一个使用GRE封装网络包的虚拟网络，GRE封装的数据包基于IP路由表来进行路由，因此GRE network不和具体的网络网络绑定
+
+VXLAN network：（虚拟可扩展网络）基于vxlan实现虚拟网络。同GRE network一样，vxlan network中IP包的路由也基于IP路由表，也不和具体的物理网络绑定
+
+1.7) 配置Linux网桥代理
+
+1.8）配置内核参数
+
+1.9)  配置三层代理
+
+第3层（L3）代理为自助式虚拟网络提供路由和NAT服务
+
+1.10）配置DHCP代理
+
+DHCP代理为虚拟网络提供DHCP服务
+
+1.11）同步neutron数据库 （任何一台controller节点 ）
+
+1.12)启动neutron服务
+
+2）在计算节点安装neutron网络组件
+
+# Install and configure compute node
+
+https://docs.openstack.org/neutron/rocky/install/compute-install-rdo.html
+
+2.1）安装软件
+
+2.2) neutron文件文件
+
+2.3）配置linux网桥代理
+
+2.4) 配置Compute服务以使用网络服务
+
+2.5) 配置内核参数
+
+2.6)启动服务
+
+2.7）验证（任何一台控制节点）
+
+六）Horizon 部署
+
+参照官网部署：
+https://docs.openstack.org/horizon/rocky/install/
+
+1)安装部署(所有控制节点）
+
+2) 编辑配置文件
+
+3)重启服务http，memcached服务
+
+七）Cinder安装部署
+
+参照官网部署：
+https://docs.openstack.org/cinder/rocky/install/index-rdo.html
+
+1）部署cinder服务（controller 节点）
+
+1.1）配置数据库及API （mysql服务）
+
+1.2)安装配置cinder服务(所有控制节点）
+
+1.3）配置计算节点使用cinder （控制节点配置）
+
+1.4)重启cinder服务
+
+1.5）验证
+
+2)部署cinder-volumes + ceph cluster
+
+2.1)安装ceph包 （所有controller 节点）
+
+2.2)拷贝ceph集群配置文件到所有controller 节点 /etc/ceph/ceph.conf （ceph 集群 任意节点）
+
+之前在配置 glance 时已经操作，在此处不在操作，
+具体命令如下：
+
+2.3)创建 Cinder 所需要的ceph 存储池：volumes （任意ceph-mon 节点 ）
+
+2.4） 生成和导出证书到 controller节点 （任意ceph-mon 节点 ）
+
+2.5） 拷贝keying 文件至所有controller 节点 和computer节点/etc/ceph/文件中
+
+2.6) controller 的  libvirt也需要这个key,创建Key：
+
+2.7）配置cinder服务
+
+2.8)重启cinder服务
+
+2.9）创建volume-type
+
+配置 Volume-type  适用场景：具有多种类型的ceph 存储
+
+注：如果不指定volume type，cinder-scheduler会忽略volume type，按默认的调度器从所有cinder-volume调度。
+
+3） openstack Nova + ceph cluster 部署
+
+说明： 部署在compute节点
+
+八）Openstack的日常使用
+
+1）web创建卷
+
+项目--》卷--》卷--》创建卷
+
+2) centos7镜像制作及上传到openstack
+
+创建云主机类型
+
+3）创建项目及用户
+
+4）创建外部网络（admin登录）
+
+#公网
+
+5）创建租户网络
+
+6）租户网络创建路由
+
+7）在openstack上传及虚拟机
+
+​
+
+1 like
+
+- 
+1
+

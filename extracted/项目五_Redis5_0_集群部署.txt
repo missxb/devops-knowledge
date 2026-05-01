@@ -1,0 +1,433 @@
+
+
+项目五：Redis5.0 集群部署
+
+## 
+项目五：Redis5.0 集群部署
+
+Back to document
+一、安装redis服务
+
+​
+Shell
+Run Code
+Copy
+9
+1
+2
+3
+4
+5
+6
+7
+cd
+/usr/local/src/
+wget
+http://download.redis.io/releases/redis-5.0.5.tar.gz
+mkdir
+
+-p
+/usr/local/redis
+tar xf redis-5.0.5.tar.gz
+cd
+redis-5.0.5
+make
+&&
+cd
+src &&
+make
+install
+
+二、配置redis集群
+
+​
+Shell
+Run Code
+Copy
+999
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+mkdir
+
+-p
+/usr/local/redis-cluster/{7001,7002}/{conf,data,logs}
+mkdir
+
+-p
+/usr/local/redis-cluster/bin
+
+#拷贝命令
+cd
+/usr/local/src/redis-5.0.5/src/
+cp
+redis-benchmark redis-check-aof redis-check-rdb redis-cli redis-sentinel redis-server
+-rf
+/usr/local/redis-cluster/bin/
+
+#准备配置文件（案例7001）7002端口做适当更改
+
+[root@mq01
+7001
+]
+# cat conf/redis.conf
+port
+7001
+daemonize
+yes
+bind
+0
+.0.0.0
+protected-mode
+yes
+dir /usr/local/redis-cluster/7001/data
+pidfile /var/run/redis-7001.pid
+
+tcp-backlog
+511
+timeout
+0
+tcp-keepalive
+300
+supervised no
+loglevel notice
+logfile
+"/usr/local/redis-cluster/7001/logs/redis.log"
+databases
+16
+save
+900
+
+1
+save
+300
+
+10
+save
+60
+
+10000
+stop-writes-on-bgsave-error
+yes
+rdbcompression
+yes
+rdbchecksum
+yes
+dbfilename
+"dump.rdb"
+slave-serve-stale-data
+yes
+slave-read-only
+yes
+repl-diskless-sync no
+repl-diskless-sync-delay
+5
+repl-disable-tcp-nodelay no
+​
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+[root@mq01 ~]
+# /usr/local/redis-cluster/bin/redis-cli --cluster create 192.168.10.220:7001 192.168.10.220:7002  192.168.10.221:7001 192.168.10.221:7002 192.168.10.222:7001  192.168.10.222:7002 --cluster-replicas 1 -a Aa@123456
+Warning: Using a password with
+'-a'
+or
+'-u'
+option on the command line interface may not be safe.
+>>> Performing hash slots allocation on
+6
+nodes...
+Master[0]
+-
+> Slots
+0
+
+-
+
+5460
+Master[1]
+-
+> Slots
+5461
+
+-
+
+10922
+Master[2]
+-
+> Slots
+10923
+
+-
+
+16383
+Adding replica
+192
+.168.10.221:7002 to
+192
+.168.10.220:7001
+Adding replica
+192
+.168.10.222:7002 to
+192
+.168.10.221:7001
+Adding replica
+192
+.168.10.220:7002 to
+192
+.168.10.222:7001
+M: 698a30286268483b3f3721081e5e959f14edbdc3
+192
+.168.10.220:7001
+slots:[0-5460] (5461 slots) master
+S: d620a91831a92657808158db5f5ca86a133da2bc
+192
+.168.10.220:7002
+replicates b24ddd54738c19c2f8f933033ad24aa34631958e
+M: d096bcb25c895948bab9c1ec587b09c3f8895d0b
+192
+.168.10.221:7001
+slots:[5461-10922] (5462 slots) master
+S: 723dfcc6255376434b9e7b7f270e52e1f23a46a4
+192
+.168.10.221:7002
+replicates 698a30286268483b3f3721081e5e959f14edbdc3
+M: b24ddd54738c19c2f8f933033ad24aa34631958e
+192
+.168.10.222:7001
+slots:[10923-16383] (5461 slots) master
+S: ec630322c72378b9ddaf4fe66d385bbae1d345b7
+192
+.168.10.222:7002
+replicates d096bcb25c895948bab9c1ec587b09c3f8895d0b
+Can I
+set
+the above configuration? (type
+'yes'
+to accept):
+yes
+>>> Nodes configuration updated
+>>> Assign a different config epoch to each
+node
+>>> Sending CLUSTER MEET messages to join the cluster
+Waiting
+for
+the cluster to join
+...
+>>> Performing Cluster Check (using
+node
+
+192
+.168.10.220:7001)
+M: 698a30286268483b3f3721081e5e959f14edbdc3
+192
+.168.10.220:7001
+slots:[0-5460] (5461 slots) master
+
+1
+additional replica(s)
+M: b24ddd54738c19c2f8f933033ad24aa34631958e
+192
+.168.10.222:7001
+slots:[10923-16383] (5461 slots) master
+
+1
+additional replica(s)
+S: 723dfcc6255376434b9e7b7f270e52e1f23a46a4
+192
+.168.10.221:7002
+slots: (0 slots) slave
+​
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+[root@mq01 ~]
+# redis-cli -h 192.168.10.220 -p 7001 -a Aa@123456
+Warning: Using a password with
+'-a'
+or
+'-u'
+option on the command line interface may not be safe.
+192
+.168.10.220:7001> cluster info
+cluster_state:ok
+cluster_slots_assigned:16384
+cluster_slots_ok:16384
+cluster_slots_pfail:0
+cluster_slots_fail:0
+cluster_known_nodes:6
+cluster_size:3
+cluster_current_epoch:6
+cluster_my_epoch:1
+cluster_stats_messages_ping_sent:116
+cluster_stats_messages_pong_sent:118
+cluster_stats_messages_sent:234
+cluster_stats_messages_ping_received:113
+cluster_stats_messages_pong_received:116
+cluster_stats_messages_meet_received:5
+cluster_stats_messages_received:234
+192
+.168.10.220:7001> cluster nodes
+b24ddd54738c19c2f8f933033ad24aa34631958e
+192
+.168.10.222:7001@17001 master
+-
+
+0
+
+1621588121000
+
+5
+connected
+10923
+-16383
+698a30286268483b3f3721081e5e959f14edbdc3
+192
+.168.10.220:7001@17001 myself,master
+-
+
+0
+
+1621588121000
+
+1
+connected
+0
+-5460
+723dfcc6255376434b9e7b7f270e52e1f23a46a4
+192
+.168.10.221:7002@17002 slave 698a30286268483b3f3721081e5e959f14edbdc3
+0
+
+1621588121921
+
+4
+connected
+d096bcb25c895948bab9c1ec587b09c3f8895d0b
+192
+.168.10.221:7001@17001 master
+-
+
+0
+
+1621588122927
+
+3
+connected
+5461
+-10922
+d620a91831a92657808158db5f5ca86a133da2bc
+192
+.168.10.220:7002@17002 slave b24ddd54738c19c2f8f933033ad24aa34631958e
+0
+
+1621588121000
+
+5
+connected
+ec630322c72378b9ddaf4fe66d385bbae1d345b7
+192
+.168.10.222:7002@17002 slave d096bcb25c895948bab9c1ec587b09c3f8895d0b
+0
+
+1621588121000
+
+6
+connected
+
+​
+
+If you get gains，please give a like
+

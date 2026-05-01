@@ -1,0 +1,459 @@
+
+
+项目九：通过 rook 部署 Ceph 分布式存储
+
+## 
+项目九：通过 rook 部署 Ceph 分布式存储
+
+Back to document
+一、通过Rook部署ceph集群
+
+注意： rook版本大于1.3，不要使用目录创建集群，建议使用单独的裸盘进行创建
+
+环境配置
+
+https://github.com/kubernetes-retired/external-storage/tree/master/ceph/rbd/deploy/rbac
+
+1）基本介绍
+
+Rook 是一个开源
+云原生存储编排器
+，为各种存储解决方案提供平台、框架和支持，以与云原生环境进行原生集成，Rook 将存储软件转变为自我管理、自我扩展和自我修复的存储服务；Rook 使用底层云原生容器管理、调度和编排平台提供的设施来执行其职责
+
+https://www.rook.io/docs/rook/v1.6/
+
+2）Ceph介绍
+
+2.1) Ceph核心组件及概念介绍
+
+●
+「ceph-mon」：Monitor 确实提供了其名称所暗示的功能——监视群集的运行状况。该监视器还告诉 OSD 在 replication 期间将数据放置在何处，并保留主 CRUSH Map （
+监视器，维护集群状态的多种映射，同时提供认证和日志记录服务
+）。
+
+●
+「ceph-osd」：OSD 是 Ceph 的基础数据存储单元，它利用 XFS 文件系统和物理磁盘来存储从客户端提供给它的块数据（
+即对象存储守护程序
+）
+
+●
+「ceph-mds」：MDS 守护程序提供了将 Ceph 块数据转换为存储文件的 POSIX 兼容挂载点的功能，就像您使用传统文件系统一样（
+Ceph 元数据，主要保存的是Ceph文件系统的元数据
+）
+
+●
+「ceph-mgr」：MGR 守护程序显示有关群集状态的监视和管理信息（
+dashboard
+）
+
+●
+「ceph-rgw」：RGW 守护程序是一个 HTTP API 守护程序，对象存储网关实际上是调用 librados 的 API 来实现数据的存储和读取。而该网关同时提供了兼容 AWS S3 和 OpenStack Swift 的对象存储访问接口 (API)。
+
+●
+PG
+PG全称Placement Grouops，是一个逻辑的概念，
+一个PG包含多个OSD
+。引入PG这一层其实是为了更好的分配数据和定位数据。
+
+●
+RADOS
+RADOS全称Reliable Autonomic Distributed Object Store，
+是Ceph集群的精华
+，用户实现数据分配、Failover等集群操作。
+
+●
+Libradio
+Librados是Rados提供库，因为RADOS是协议很难直接访问，因此上层的RBD、RGW和CephFS都是通过librados访问的，目前提供PHP、Ruby、Java、Python、C和C++支持。
+
+●
+CRUSH
+CRUSH是Ceph使用的数据分布算法，类似一致性哈希，让数据分配到预期的地方。
+
+●
+RBD
+RBD全称RADOS block device，是Ceph对外提供的
+块设备服务
+。
+
+●
+RGW
+RGW全称RADOS gateway，是Ceph对外提供的
+对象存储服务
+，接口与S3和Swift兼容。
+
+●
+CephFS
+CephFS全称Ceph File System，是Ceph对外提供的
+文件系统服务
+。
+
+2.2）Ceph特点
+
+●
+高性能
+a. 摒弃了传统的集中式存储元数据寻址的方案，采用CRUSH算法，数据分布均衡，并行度高。
+b.考虑了容灾域的隔离，能够实现各类负载的副本放置规则，例如跨机房、机架感知等。
+c. 能够支持上千个存储节点的规模，支持TB到PB级的数据。
+
+●
+高可用性
+a. 副本数可以灵活控制。
+b. 支持故障域分隔，数据强一致性。
+c. 多种故障场景自动进行修复自愈。
+d. 没有单点故障，自动管理。
+
+●
+高可扩展性
+a. 去中心化。
+b. 扩展灵活。
+c. 随着节点增加而线性增长。
+
+●
+特性丰富
+a. 支持三种存储接口：块存储、文件存储、对象存储。
+b. 支持自定义接口，支持多种语言驱动。
+
+2.3）Ceph系统中寻址流程图
+
+File
+
+—— 此处的 file 就是用户需要存储或者访问的文件。当用户要将数据存储到 Ceph 集群时，存储数据都会被分割成多个 object。
+
+Ojbect
+
+—— 每个 object 都有一个 object id，每个 object 的大小是可以设置的，默认是 4MB，object 可以看成是 Ceph 存储的最小存储单元。
+
+PG（Placement Group）
+—— 顾名思义，PG 的用途是对 object 的存储进行组织和位置映射。由于 object 的数量很多，所以 Ceph 引入了 PG 的概念用于管理 object，每个 object 最后都会通过 CRUSH 计算映射到某个 pg 中，一个 pg 可以包含多个 object。
+
+OSD
+—— 即 object storage device，PG 也需要通过 CRUSH 计算映射到 osd 中去存储，如果是二副本的，则每个 pg 都会映射到二个 osd，比如 [osd.1,osd.2]，那么 osd.1 是存放该 pg 的主副本，osd.2 是存放该 pg 的从副本，保证了数据的冗余。
+
+CRUSH算法：实时计算
+
+file--->object映射 （把file切分成要存储object）
+
+●
+ino： 待操作file的元数据，该file的唯一ID
+
+●
+ono： file切分产生的某个object的序号，默认以4M切分一个块大小
+
+●
+object id： 每一个切分后产生的object将获得唯一oid
+
+●
+oid：  （object： ino+ono）文件id +切分后的对象序号
+
+则其 object 序号依次为 0、1 和 2，而最终得到的 oid 就依次为 filename0、filename1 和 filename2
+
+object---->PG映射（把对象放置归置组）
+
+需要将每个object独立映射到一个PG中
+
+Ceph指定一个静态hash函数计算oid的值，将oid映射成一个近似均匀分布的伪随机值，然后和mask按位相与，得到pgid
+
+a. hash(oid) & mask-> pgid 。
+
+b. mask = PG总数m(m为2的整数幂)-1
+
+PG -> OSD 映射 （把归置的对象存储到N个OSD对象存储设备）
+
+将作为 object 的逻辑组织单元的 PG 映射到数据的实际存储单元 OSD，RADOS 采用一个名为
+CRUSH 的算法
+，将 pgid 代入其中，然后得到一组共 n 个 OSD。这 n 个 OSD 即共同负责存储和维护一个 PG 中的所有 object
+
+●
+PG负责组织若干个object，但一个object只能被隐射到一个PG中
+
+●
+一个PG会被映射到n个OSD上，每个OSD上都会承载大量的PG
+
+2.4）通过cephadm部署
+
+Cephadm是最新的Ceph部署工具，他利用容器和Systemd，仅仅支持
+Octopus或者更新的版本
+。
+
+Cephadm的外部依赖包括容器运行时
+（Docker或者Podman），以及Python3
+。
+
+2.5）块存储RBD
+
+https://www.cnblogs.com/hsyw/p/14541073.html
+
+2.6）cephfs存储
+
+●
+文件元数据与文件数据存储在单独的 RADOS 池中
+
+●
+MDS 提供服务
+
+●
+文件系统的客户端可以直接访问 RADOS 来读取和写入文件数据块
+
+●
+对数据的访问通过 MDS 集群进行协调，MDS 集群作为客户端和 MDS 共同维护的分布式元数据缓存状态的权限
+
+2.7）osd扩容和换盘
+
+2.8）CephX认证
+
+ceph使用cephx协议对客户端进行身份验证
+
+●
+每个mon都可以对客户端进行身份验证并分发密钥，不存在单点故障和性能瓶颈
+
+●
+mon会返回用于身份验证的数据结构，其包含获取ceph服务时用到的session key
+
+session key通过客户端密钥进行加密
+
+客户端使用session key向mon请求所需要的服务
+
+mon向客户端提供一个ticket，用于向司机处理数据的osd等验证客户身份
+
+mon和osd共享同一个secret，因此osd会信任由mon发放的ticket
+
+ticket有有效期限
+
+注意：cephx身份验证仅限ceph的各组件之间，它不能扩展到其他非ceph组件，它并不解决数据传输加密的问题
+
+2.9）定制crush map规则
+
+CRUSH 算法通过计算数据存储位置来确定如何存储和检索,
+CRUSH 使 Ceph 客户端能够直接与 OSD 通信。CRUSH 使用集群的映射（CRUSH 映射）伪随机地将数据映射到 OSD，根据配置的复制策略和故障域将其分布在整个集群中。您部署 OSD 时，它们会自动添加到 CRUSH 映射中
+host
+以它们运行的节点命名的存储桶下（默认
+以主机为单位
+），crush map可以决定数据在osd上是怎么分配的，它的容灾是怎么做的。
+
+命令行调整crush map
+
+3）rook安装部署
+
+注意：
+如果您使用的是 K8s 1.15 或更早版本，则需要创建不同版本的 Rook CRD。创建在示例清单
+crds.yaml
+的
+pre-k8s-1.16
+子文件夹中找到的
+
+为了配置 Ceph 存储集群，至少需要以下本地存储选项之一：
+
+●
+原始设备（无分区或格式化文件系统） # 建议
+
+●
+原始分区（无格式化文件系统）
+
+●
+block
+模式下存储类可用的 PV
+
+命令：
+lsblk -f
+
+4) 安装ceph snapshot控制器
+
+k8s 1.19版本以上需要单独安装snapshot控制器，才能完成pvc的快照功能，所以在此提前安装下，如果是1.19以下版本，不需要单独安装
+
+5) 安装ceph dashboard
+
+问题1：
+AUTH_INSECURE_GLOBAL_ID_RECLAIM_ALLOWED
+: mons are allowing insecure global_id reclaim
+
+二、RBD块存储
+
+块存储一般用于一个Pod挂载一块存储使用，相当于一个服务器新挂了一个盘，只给一个应用使用
+
+2.1)  创建StorageClass和ceph的存储池
+
+2.2）挂载测试（动态申请pv）
+
+说明：
+创建pvc只需要指定storageClassName为刚才创建的StorageClass名称即可连接到rook的ceph。如果是statefulset，只需要将volumeTemplateClaim里面的Claim名称改为StorageClass名称即可动态创建Pod
+
+2.3）statefulset动态pvc申请
+
+2.4）pvc扩容
+
+注意：
+
+●
+块存储类型的PVC扩容需要k8s 1.16+
+
+●
+PVC扩容需要开启
+ExpandCSIVolumes
+，新版本的k8s已经默认打开了这个功能
+
+●
+需要找到对应的StorageClass，将allowVolumeExpansion设置为true（新版rook默认为true，如果不为true更改后执行kubectl replace即可）
+
+2.5）pvc快照
+
+注意：
+PVC快照功能需要k8s 1.17+
+
+2.6）数据还原
+
+2.7）pvc克隆
+
+三、CEPHFS文件存储
+
+3.1)cephfs介绍
+
+3.2）创建共享类型的文件系统
+
+3.3）创建共享类型文件系统的StorageClass
+
+3.4）挂载测试（动态申请pv）
+
+3.5）外部如何访问到cephfs
+
+3.5）pvc扩容
+
+注意：
+
+●
+文件共享类型的PVC扩容需要k8s 1.15+
+
+●
+PVC扩容需要开启
+ExpandCSIVolumes
+，新版本的k8s已经默认打开了这个功能
+
+●
+kube-apiserver -h |grep ExpandCSIVolumes
+
+3.6）pvc快照
+
+3.7）数据还原
+
+3.8）pvc克隆
+
+四、RGW对象存储
+
+4.1）对象存储概述
+
+Ceph 对象网关
+是一个构建在其之上的对象存储接口， librados用于为应用程序提供通往 Ceph 存储集群的 RESTful 网关。
+Ceph 对象存储
+支持两个接口：
+
+S3 兼容：
+通过与 Amazon S3 RESTful API 的大部分子集兼容的接口提供对象存储功能。
+
+Swift 兼容：
+通过与 OpenStack Swift API 的大部分子集兼容的接口提供对象存储功能。
+
+Ceph 对象存储使用 Ceph 对象网关守护进程 ( radosgw)，它是一个 HTTP 服务器，用于与 Ceph 存储集群交互
+
+4.2）部署RGW集群
+
+4.3）RGW高可用集群
+
+4.4) 高级调度（把rgw跑到指定的节点）
+
+4.5）连接外部集群
+
+4.5）创建Bucket存储桶
+
+4.6）容器访问对象存储
+
+4.7）外部访问对象存储
+
+4.8）创建单独访问用户
+
+4.9）对象存储RGW集群维护
+
+五、OSD日常管理
+
+https://www.rook.io/docs/rook/v1.6/ceph-osd-mgmt.html
+
+5.1) osd健康状态
+
+Ceph 对象存储守护进程 (OSD) 是 Ceph 存储平台的核心和灵魂。每个 OSD 管理一个本地设备，它们一起提供分布式存储。Rook 将自动创建和管理 OSD，以尽可能隐藏基于 CephCluster CR 中所需状态的复杂性
+
+5.2）添加osd
+
+5.3）删除osd
+
+5.4)osd替换
+
+5.5）osd故障
+
+六）Prometheus监控Ceph
+
+1）通过helm部署prometheus-operator
+
+https://github.com/prometheus-operator/prometheus-operator/releases/tag/v0.48.0
+
+七）CRD资源详解
+
+八）Ceph运维
+
+8.1) 监控集群
+
+8.1.1）检查集群状态
+
+执行ceph status 或者 ceph -s可以查看集群状态
+
+●
+active+clean：说明集群健康运行
+
+●
+undersized+degraded：如果有OSD节点宕机，可能进入此状态。
+降级后还是可以正常读写数据
+
+●
+undersized+degraded+peered：如果超过min size要求的OSD宕机，则不可读写，显示为此状态。min size默认2，副本份数默认3。执行下面的命令可以修改min size （
+ceph osd pool set rbd
+min
+_
+size
+1
+）
+
+●
+remapped+backfilling：默认情况下，OSD宕机5分钟后会被标记为out状态，Ceph认为它已经不属于集群了。Ceph会按照一定的规则，将已经out的OSD上的PG重映射到其它OSD，并且从现存的副本来回填（Backfilling）数据到新OSD
+
+8.1.2）检查存储用量
+
+执行命令
+ceph
+df
+可以查看
+集群的数据用量及其在存储池内的分布情况
+：
+
+8.1.3）检查MON状态
+
+8.1.4）检查MDS状态
+
+8.1.5）检查OSD状态
+
+8.1.6）检查PG状态
+
+8.2）操控OSD
+
+8.3）操控存储池（RBD）
+
+8.4） 操控镜像（image）
+
+Ceph的块设备具有以下特点：thin-provisioned（精简配备）、可改变大小、跨越多OSD存储
+
+参考博客：
+https://blog.gmem.cc/ceph-study-note
+
+​
+
+1 like
+
+- 
+1
+

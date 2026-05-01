@@ -1,0 +1,2155 @@
+
+
+项目十：Kubernetes 云架构平台
+
+## 
+项目十：Kubernetes 云架构平台
+
+Back to document
+一、Kubernetes系统基础
+
+1.4）Kubernetes中重要的资源对象
+
+1.4.1）Master
+
+Kubernetes里的Master指的是集群控制节点，在每个Kubernetes集群 里都需要有一个Master来负责整个集群的管理和控制，是整个集群的大脑，在Master上运行如下进程
+
+●
+kube-apiserver      提供HTTP Rest接口的关键服务进程，是Kubernetes里所有资源等操作的唯一入口，安全认证
+
+●
+kube-controller-manager
+Kubernetes
+里所有资源对象的自动化控制中心，可以将其理解为资源对
+
+象的“大总管
+
+●
+Kubernetes Scheduler（kube-scheduler）：负责资源调度（Pod 调度）的进程，相当于公交公司的“调度室”
+
+●
+etcd    Kubernetes里的所有资源对象的数据都被保存在etcd中
+
+1.4.2）Node
+
+●
+Kubelet   负责Pod对应的容器创建、启停等任务，与apiserver密切协作，实现集群管理，上报节点集群状态
+
+●
+kube-proxy
+实现Kubernetes Service的通信与负载均衡机制的重要组件
+
+●
+Docker Engine（docker）：Docker引擎，负责本机的容器创建和管理工作
+
+1.4.3）Pod
+
+Pod是Kubernetes最重要的基本概念，每个Pod都有一个特殊的被称为“根容器”的Pause容器，除了Pause容器， 每个Pod还包含一个或多个紧密相关的用户业务容器
+
+1.4.4) Service
+
+Service服务也是Kubernetes里的核心资源对象之一，Kubernetes里的每个Service其实就是我们经常提起的微服务架构中的一个微服务
+
+前端的应用（Pod）通过这个入口地址访问其背后的一组由 Pod副本组成的集群实例，Service与其后端Pod副本集群之间则是通过Label Selector来实现无缝对接的。
+
+二、Kubernetes安装部署
+
+2.1）二进制方式安装部署kubernetes1.19.5
+
+参考文档：
+
+https://www.yuque.com/docs/share/4ded2d27-94bd-4035-8bca-ce4409aaae51?#
+《项目八： 通过阿里云ECS部署高可用k8s集群》
+
+2.2）搭建DNS服务
+
+目前k8s使用的dns服务，主流
+以coredns为主
+；这里只做了解（通过
+skydns实现dns服务
+）
+
+●
+etcd：
+DNS信息存储
+
+●
+kube2sky：
+监控k8s中Service资源的变化，根据Service的名称的IP地址信息生成DNS记录，并将其保存到etcd中
+
+●
+skyDNS：
+从etcd中读取DNS信息，并提供DNS查询服务
+
+●
+healthz：
+提供对skydns服务的健康检查功能
+
+skydns服务有一个RC和一个Service组成，分别由配置文件skydns-rc.yaml和skydns-svc.yaml定义
+
+三、管理Pod资源对象
+
+3.1）为什么需要pod
+
+Pod 实际上是在扮演传统基础设施里"虚拟机"的角色；而容器则是这个虚拟机里的应用程序
+
+3.1.1）Pod实现原理
+
+●
+Pod只是一个逻辑的概念（在k8s上，真正处理的，还是宿主机操作系统上容器）
+
+●
+Pod是一组共享了某些资源的容器，pod里所有容器共享Net Namespace，Volume，UTS
+
+●
+在 Kubernetes 项目里，Pod 的实现需要使用一个中间容器，这个容器叫作 Infra 容器。在这个 Pod 中，Infra 容器永远都是第一个被创建的容器，而其他用户定义的容器，则通过 Join Network Namespace 的方式，与 Infra 容器关联在一起
+
+●
+这个 Pod 里有两个用户容器 A 和 B，还有一个 Infra 容器，这个是非常特殊的镜像，用汇编语言编写，大小只有100K
+
+说明：
+用户容器就可以加入到 Infra 容器的 Network Namespace ，通过Infra容器挂载volume目录，然后用户容器挂载Infra里的volume；用户容器中的A和B可以直接使用localhost通信，用户容器看见的网络设备跟Infra容器看到的完全一样，一个Pod只有一个IP地址，Pod的生命周期只跟Infra容器一直，与用户容器无关。
+
+●
+共享网络  （
+容器A和B通过 Infra Container 的方式共享同一个 Network Namespace
+）
+
+●
+共享存储  （
+容器A和B共享存储，通过pod基础容器挂载volume
+）
+
+案例1： 共享volume
+
+3.1.2）容器设计模式
+
+容器的本质是进程，容器是单进程模型，
+容器里 PID=1 的进程就是应用本身
+
+进程组：  多个进程同时调度  （kubernetes引入pod，把多个超亲密关系的容器放到一个pod里，然后基于pod来调度）
+
+案例2： WAR包和WEB服务器
+
+案例3：
+容器的日志收集
+
+我现在有一个应用，需要不断地把日志文件输出到容器的 /var/log 目录中,这时，我就可以把一个 Pod 里的
+Volume 挂载到应用容器的 /var/log 目录上
+。然后，我在这个 Pod 里同时运行一个
+sidecar 容器
+，它也声明挂载同一个 Volume 到自己的 /var/log 目录上
+
+3.2） 理解Pod对象
+
+Pod 看成传统环境里的“机器”、把容器看作是运行在这个“机器”里的“用户程序”，凡是调度、网络、存储，以及安全相关的属性，基本上是 Pod 级别的。
+
+A： Pod对象，Spec常用的字段
+
+●
+NodeSelector  是一个供用户将 Pod 与 Node 进行绑定的字段
+
+●
+NodeName    是让kubernetes调度到指定的节点上
+
+●
+HostAliases：定义了 Pod 的 hosts 文件（比如 /etc/hosts）里的内容
+
+●
+Volumes   定义挂载的卷（后面详细介绍）
+
+●
+hostNetwork: true  共享宿主机的网络
+
+●
+
+serviceAccountName   SA的名称
+
+●
+securityContext  Pod安全上下文 （后面详细介绍）
+
+●
+restartPolicy   重启策略
+
+●
+initContainers 初始化容器（后面详细介绍）
+
+●
+imagePullSecrets  拉取私有镜像的secrets
+
+●
+affinity   倾向性（后面详细介绍）
+
+●
+Containers  容器 （下面详细介绍）
+
+B： Containers常用的字段
+
+●
+image     指定docker镜像
+
+●
+ImagePullPolicy  镜像拉取策略
+
+●
+Lifecycle   在容器状态发生变化时触发一系列“钩子” （生命周期后面详细介绍）
+
+●
+livenessProbe  存活性探测
+
+●
+readinessProbe 就绪性探测
+
+●
+startupProbe  启动前探测（当配置了这，livenessProbe和readinessProbe等待这个启动后，才检查）
+
+●
+securityContext  容器安全上下文
+
+●
+ports   端口
+
+●
+volumeMounts 挂载卷
+
+3.3） Pod的生命周期
+
+3.3.1）
+Pod的阶段:Pod phase
+
+Pending：Pod已经被k8s系统接受，但Pod中还有容器没有被创建。Pod被调度前和下载容器镜像的时候都处于这个阶段
+
+Running：Pod已经被调度到Node上，所有的容器都已经被创建，并且至少有一个容器还在运行中（正在启动或重启中的容器也算）
+
+Succeeded：Pod中的所有容器都成功停止，并且不会再次重启
+
+Failed：Pod中的所有容器都已经停止，并且至少有一个容器是以失败停止的（以非0状态退出或被系统强制停止）
+
+Unknown：由于某种原因无法获得Pod的状态，一般是和Pod所在的Host出现通信问题导致
+
+3.3.2）容器的状态:Container states
+
+Waiting：容器默认的状态，只要不是Running和Terminated状态就是这个状态，拉取镜像的时候也是这个状态
+Running：表示容器正在正常运行中，如果定义了postStarthook(钩子)，则该hook会在容器进入Running状态前执行
+
+Terminated：表示容器已经执行完并停止运行。如果定义了preStop钩子，在一个容器进入Terminated状态前，该钩子会被执行。执行完有两种情况，一种是正常退出，另外一种是因为某种原因失败退出，通过Reason和Exit Code查看容器停止的原因和状态码：
+
+State:          Terminated
+
+Reason:       Completed
+
+Exit Code:    0
+
+Started:      Wed, 30 Jan 2019 11:45:26 +0530
+
+Finished:     Wed, 30 Jan 2019 11:45:26 +0530
+
+3.3.3）容器的探针:Container probes
+
+livenessProbe：检测容器是否还在运行中，kubelet使用这个探针来知道什么时候重启一个容器，一旦探测失败，kubelet会把该容器kill掉，至于容器需不需要重启，还需要看容器所在的Pod的重启策略(restartPolicy，详见下文)，如果容器没有提供这个探针，则默认成功 （周期性检测）
+
+readinessProbe：用于检测容器是否已经准备好接收服务请求，如果探测失败，控制器会把这个Pod的IP地址从相应的Service上移除。在容器启动时的初始化延迟(initial delay，详见下文的initialDelaySeconds)时间内，探测默认为失败。如果一个容器没有提供这个探针，默认为成功（在initial delay之后）（周期性检测）
+
+startupProbe：用于容器启动时判断容器是否启动完成，在这个探针探测成功前，即容器启动成功前，livenessProbe和readinessProbe探针都不会起作用，防止某些启动很慢的容器在启动过程中，livenessProbe探针探测容器失败触发容器重启导致死锁。如果这个探针探测失败（容器启动时间超过了阈值），kubelet会把这个容器kill掉，再根据restartPolicy决定是否创建容器 （只检查一次）
+
+探针支持的属性：
+
+initialDelaySeconds：默认值是0，最小值是0，容器启动后等待多久，liveness or readiness开始第1次执行
+
+periodSeconds：多久执行一次探针，默认值是10，最小值是1
+
+timeoutSeconds：探针执行超时时间，默认值是1，最小值是1
+
+successThreshold：失败后执行多少次探针成功才算成功，默认值是1，最小值是1，对于liveness来说必须是1
+
+failureThreshold：探针连续失败多少次后才算失败，默认是3，最小值是1
+
+四、Kubernetes控制器
+
+4.1）控制器基础
+
+Kubernetes 中内建了很多
+controller（控制器）
+，这些相当于一个状态机，用来控制 Pod 的具体状态和行为。
+
+控制循环：
+通过 API Server 监控整个集群的状态，并确保集群处于预期的工作状态
+
+Kubernetes 控制器会监视资源的创建/更新/删除事件，并触发 Reconcile 函数作为响应。整个调整过程被称作 “Reconcile Loop”（调谐循环）或者 “Sync Loop”（同步循环）
+
+●
+水平触发
+
+: 系统仅依赖于当前状态。即使系统错过了某个事件（可能因为故障挂掉了），当它恢复时，依然可以通过查看信号的当前状态来做出正确的响应。
+
+●
+边缘触发 : 系统不仅依赖于当前状态，还依赖于过去的状态。如果系统错过了某个事件（“边缘”），则必须重新查看该事件才能恢复系统。
+
+控制器类型
+
+●
+ReplicationController 和 ReplicaSet
+
+●
+Deployment
+
+●
+DaemonSet
+
+●
+StateFulSet
+
+●
+job/CronJob
+
+●
+Horizontal Pod Autoscaling
+
+ReplicaSet
+
+4.2）Deployment控制器
+
+作用： deployment 是用来管理无状态应用的
+
+关键参数：
+
+●
+selector  标签选择器（选择满足条件的pod）
+
+●
+replicas    副本数
+
+●
+template    Pod模板
+
+●
+strategy   滚动更新策略
+
+简单案例1:
+
+滚动更新和回滚：
+
+kubectl explain deploy.spec.strategy   策略订是配置怎么滚动升级的，支持两种策略：
+
+●
+minReadySeconds
+：表示 Kubernetes 在等待设置的时间后才进行升级，如果没有设置该值，Kubernetes 会假设该容器启动起来后就提供服务了，如果没有设置该值，在某些极端情况下可能会造成服务不正常运行，默认值就是0。
+
+●
+type=RollingUpdate
+：表示设置更新策略为滚动更新，可以设置为
+Recreate
+和
+RollingUpdate
+两个值，
+Recreate
+表示全部重新创建，默认值就是
+RollingUpdate
+。
+
+●
+maxSurge
+：表示升级过程中最多可以比原先设置多出的 Pod 数量，例如：
+maxSurage=1，replicas=5
+，就表示Kubernetes 会先启动一个新的 Pod，然后才删掉一个旧的 Pod，整个升级过程中最多会有
+5+1
+个 Pod。
+
+●
+maxUnavaible
+：表示升级过程中最多有多少个 Pod 处于无法提供服务的状态，当
+maxSurge
+不为0时，该值也不能为0，例如：
+maxUnavaible=1
+，则表示 Kubernetes 整个升级过程中最多会有1个 Pod 处于无法服务的状态。
+
+注意：
+maxSurge和maxUnavailable属性的值不可同时为0
+
+Deployment 模板
+
+滚动升级案例
+
+#修改滚动更新策略
+
+kubectl
+patch
+deploy myapp-deploy -p '{
+"spec"
+:{
+"strategy"
+:{
+"rollingUpdate"
+:{
+"maxSurge"
+:
+1
+,
+"maxUnavailable"
+:
+0
+}}}}'
+
+金丝雀发布
+
+回滚
+
+扩容和缩容
+
+4.3）StatefulSet控制器
+
+4.4）DaemonSet控制器
+
+4.5) job和cronjob控制器
+
+4.6) 案例
+
+案例1： 使用statefulset部署eureka集群
+
+案例2：  部署gateway网关
+
+五、Service服务
+
+作用： 负载均衡，代理服务
+
+5.1）原理
+
+5.1.1）为什么需要Services
+
+在 kubernetes 中，当创建带有
+多个副本的 deployment 时
+，kubernetes 会创建出
+多个 pod
+，此时即一个服务后端有多个容器，那么在 kubernetes 中负载均衡怎么做，
+容器漂移后 ip 也会发生变化
+，如何做
+服务发现
+以及会话保持？这就是 service 的作用，service 是一组具有相同
+label pod 集合
+的抽象，集群内外的各个服务可以通过 service 进行互相通信，
+当创建一个 service 对象时也会对应创建一个 endpoint 对象
+，endpoint 是用来做容器发现的，service 只是将多个 pod 进行关联，实际的路由转发都是由 kubernetes 中的
+kube-proxy 组件
+来实现，因此，service 必须结合 kube-proxy 使用，
+kube-proxy 组件可以运行在 kubernetes 集群中的每一个节点上
+也可以只运行在单独的几个节点上，其会根据 service 和 endpoints 的变动来改变节点上 iptables 或者 ipvs 中保存的路由规则。
+
+总结：  服务发现，提供统一的访问入口 （通过标签选择一组pod）
+
+endpoints controller ：  是负责生成和维护所有 endpoints 对象的控制器，监听 service 和对应 pod 的变化，更新对应 service 的 endpoints 对象。当用户创建 service 后 endpoints controller 会监听 pod 的状态，当
+pod 处于 running 且准备就绪
+时，endpoints controller 会将 pod ip 记录到 endpoints 对象中，因此，service 的容器发现是通过 endpoints 来实现的。而 kube-proxy 会监听 service 和 endpoints 的更新并调用其代理模块在主机上刷新路由转发规则。
+
+kube-proxy 的路由转发规则是通过其后端的代理模块实现的，kube-proxy 的代理模块目前有三种，userspace、iptables、ipvs（目前常用ipvs）
+
+5.1.2）代理模式
+
+A：  Iptables代理模式
+
+iptables 模式基于
+netfilter 实现
+。当客户端请求 service 的 ClusterIP 时，根据 iptables 规则路由到各 pod 上，iptables 使用 DNAT 来完成转发，其采用了随机数实现负载均衡。iptables 模式与 userspace 模式最大的区别在于，iptables 模块使用
+DNAT 模块实现了 service 入口地址到 pod 实际地址的转换
+，免去了一次内核态到用户态的切换，另一个与 userspace 代理模式不同的是，如果 iptables 代理最初选择的那个 pod 没有响应，它不会自动重试其他 pod。iptables 模式最主要的问题是在
+service 数量大的时候会产生太多的 iptables 规则
+，使用非增量式更新会引入一定的时延，大规模情况下有明显的性能问题。
+
+B： IPVS代理模式
+
+当集群规模比较大时，iptables 规则刷新会非常慢，难以支持大规模集群，因其底层路由表的实现是链表，对路由规则的增删改查都要涉及遍历一次链表，ipvs 的问世正是解决此问题的，
+ipvs 是 LVS 的负载均衡模块
+，与 iptables 比较像的是，ipvs 的实现虽然
+也基于 netfilter 的钩子函数
+，但是它却使用
+哈希表作为底层的数据结构
+并且工作在内核态，也就是说 ipvs 在重定向流量和同步代理规则有着更好的性能，几乎允许无限的规模扩张。
+
+ipvs 支持三种负载均衡模式：
+DR模式（Direct Routing）、NAT 模式（Network Address Translation）、Tunneling（也称 ipip 模式）
+。三种模式中
+只有 NAT 支持端口映射，所以 ipvs 使用 NAT 模式
+。linux 内核原生的 ipvs 只支持 DNAT，当在数据包过滤，
+SNAT 和支持 NodePort 类型的服务这几个场景中ipvs 还是会使用 iptables。
+
+此外，ipvs 也支持更多的负载均衡算法，例如：
+
+●
+rr：round-robin/轮询
+
+●
+lc：least connection/最少连接
+
+●
+dh：destination hashing/目标哈希
+
+●
+sh：source hashing/源哈希
+
+●
+sed：shortest expected delay/预计延迟时间最短
+
+●
+nq：never queue/从不排队
+
+5.2）
+k8s支持的4种类型的Service
+
+A： ClusterIP
+
+作用： 服务之间调用，常用的方式
+
+pod ---> ClusterIP:ServicePort --> (iptables)DNAT --> PodIP:containePort
+
+B： NodePort
+
+作用： 暴露服务给k8s外部访问 （暴露给外网访问，常用的方法）
+
+client ---> NodeIP:NodePort ---> ClusterIP:ServicePort ---> (iptables)DNAT ---> PodIP:containePort
+
+C:   LoadBalancer
+
+限制条件：
+公有云托管集群中会支持该类型（或者openstack自建的私有云）
+
+D:  ExternalName (用的不多）
+
+作用： 当在外部有一个域名（比如RDS，Redis）服务，我们想在集群内部访问到该资源，我们可以配置一个cname地址指向外部域名
+
+比如：    mysql-server.xhaihua.cn  --- > 114.113.23.34             A记录
+
+service-asset.svc.cluster.local  -----> mysql-server.xhaihua.cn
+
+类型为 ExternalName 的service将服务映射到 DNS 名称
+
+当查找主机
+service-asset.default.svc.cluster.local
+时，集群DNS服务返回CNAME记录，其值为mysql-server.xhaihua.cn
+
+E：
+k8s集群访问集群外部服务
+
+保证endpoint和service名字一致，而不是通过labels选中
+
+F:
+Headless Service
+
+作用：常常配合StatefulSet使用，不需要ClusterIP，请求直接访问到后端服务
+
+5.3) 服务发现
+
+service 当前支持两种类型的服务发现机制，一种是通过环境变量，另一种是通过 DNS
+
+5.3.1) 通过环境变量
+
+当一个 pod 创建完成之后，kubelet 会在该 pod 中注册该集群已经创建的所有 service 相关的环境变量，但是需要注意的是，在 service 创建之前的所有 pod 是不会注册该环境变量的，所以在平时使用时，建议通过 DNS 的方式进行 service 之间的服务发现
+
+5.3.2) 通过DNS
+
+可以在集群中部署
+CoreDNS
+服务(旧版本的 kubernetes 群使用的是 kubeDNS)， 来达到集群内部的 pod 通过DNS 的方式进行集群内部各个服务之间的通讯。当前 kubernetes 集群默认使用 CoreDNS 作为默认的 DNS 服务，主要原因是 CoreDNS 是基于 Plugin 的方式进行扩展的，简单，灵活，并且不完全被Kubernetes所捆绑
+
+endpoint：
+endpoint是k8s集群中的一个资源对象，存储在etcd中，用来记录一个service对应的所有pod的访问地址。service配置selector，endpoint controller才会自动创建对应的endpoint对象；否则，不会生成endpoint对象。
+
+endpoint controller是k8s集群控制器的其中一个组件，其功能如下：
+
+●
+负责生成和维护所有endpoint对象的控制器
+
+●
+负责监听service和对应pod的变化
+
+●
+监听到service被删除，则删除和该service同名的endpoint对象
+
+●
+监听到新的service被创建，则根据新建service信息获取相关pod列表，然后创建对应endpoint对象
+
+●
+监听到service被更新，则根据更新后的service信息获取相关pod列表，然后更新对应endpoint对象
+
+●
+监听到pod事件，则更新对应的service的endpoint对象，将podIp记录到endpoint中
+
+A： iptables
+
+kube-proxy中，客户端的请求数据包在Iptables规则中具体的匹配过程为
+
+●
+集群内的Pod通过clusterIP访问Service时
+经过OUTPUT链
+， 而当集群外主机通过NodePort方式访问Service时，通过PREROUTING链，两个链都会跳转到
+KUBE-SERVICE链
+
+●
+KUBE-SERVICES链
+(每一个Service所暴露的每一个端口在KUBE-SERVICES链中都会对应一条相应的规则，当Service的数量达到一定规模时，KUBE-SERVICES链中的规则的数据将会非常的大，而Iptables在进行查找匹配时是线性查找，这将耗费很长时间,时间复杂度O(n)
+
+●
+KUBE-SVC-XXXXX链
+(在KUBE-SVC-XXXXX链中(后面那串 hash 值由 Service 的虚 IP 生成)，会以一定的概率匹配下面的某一条规则执行，通过statistic模块为每个后端设置权重，已实现负载均衡的目的，每个KUBE-SEP-XXXXX链代表Service后面的一个具体的Pod(后面那串 hash 值由后端 Pod 实际 IP 生成),这样便实现了负载均衡的目的)
+
+●
+KUBE-SEP-XXXX链
+(通过DNAT，将数据包的目的IP修改为服务端的Pod IP)
+
+●
+POSTROUTING链
+
+●
+KUBE_POSTROUTING链 (对标记的数据包做SNAT)
+
+B： IPVS
+
+IPVS
+是
+LVS
+项目的一部分，是一款运行在Linux kernel当中的4层负载均衡器,IPVS具有以下特点:
+
+●
+传输层Load Balancer, LVS负载均衡器的实现。
+
+●
+与Iptables同样基于Netfilter, 但是使用的是hash表。
+
+●
+支持TCP, UDP, SCTP协议，支持IPV4, IPV6。
+
+●
+支持多种负载均衡策略:
+
+○
+rr: round-robin
+
+○
+lc: least connection
+
+○
+dh: destination hashing
+
+○
+sh: source hashing
+
+○
+sed: shortest expected delay
+
+○
+nq: never queue
+
+●
+支持会话保持
+
+LVS的工作原理如下图所示:
+
+●
+当客户端的请求到达负载均衡器的内核空间时，首先会达到PREROUTING链
+
+●
+当内核发现请求的数据包的目的地址是本机时，将数据包送往INPUT链
+
+●
+当数据包达到INPUT链时， 首先会被IPVS检查，如果数据包里面的目的地址及端口没有在IPVS规则里面，则这条数据包将被放行至用户空间。
+
+●
+如果数据包里面的目的地址和端口在IPVS规则里面，那么这条数据报文的目的地址会被修改为通过负责均衡算法选好的后后端服务器(DNAT),并发往POSROUTING链。
+
+●
+最后经由POSTROUTING链发往后端的服务器。
+
+LVS主要由三种工作模式, 分别是NAT DR, Tunnel模式，而在kube-proxy中，
+IPVS工作在NAT模式
+，所以下面主要对NAT模式进行介绍:
+
+●
+客户端将请求发往前端的负载均衡器，请求报文源地址是CIP(客户端IP), 目的地址是VIP(负载均衡器前端地址)
+
+●
+负载均衡器收到报文之后，发现请求的是在规则里面存在的地址，那么它将请求的报文的目的地址改为后端服务器的RIP地址，并将报文根据响应的负责均衡策略发送出去
+
+●
+报文发送到Real Server后，由于报文的目的地址是自己，所有会响应请求，并将响应的报文返回给LVS。
+
+●
+然后LVS将此报文的源地址修改本机的IP地址并发送给客户端。
+
+●
+创建虚拟网卡,默认是kube-ipvs0
+
+●
+绑定service IP地址到虚拟网卡kube-ipvs0
+
+●
+为每一个Service IP地址创建IPVS虚拟服务器
+
+六、Ingress服务
+
+6.1）Ingress基础介绍
+
+Kubernetes 暴露服务的方式
+
+●
+Service NodePort: 后期维护困难,不支持虚拟路径
+
+●
+Service LoadBlancer: 需要云厂商支持,有局限性
+
+●
+Ingress: 灵活,无依赖 （集群外部注入集群内部）
+
+Services的缺点：
+
+●
+Service他的工作原理是基于iptables或ipvs的，iptables和ipvs是四层代理的，四层代理有个缺陷就是他只是工作在tcp/ip协议栈
+
+●
+外部请求是HTTPS的请求，Service是无法调度的
+
+Ingress controller解决思路
+
+我们认为内部网络是安全的，就可以在
+接入层就卸载SSL会话
+，外部使用HTTPS通信，而内部使用HTTP通信。所以要换一种调度方式 在Kubernetes中采用一种独特的方式实现。在提供服务的pod之前再加一层，后端pod就采用明文的HTTP，中间加的一层调度器
+Pod运行一个七层的应用比如NGINX、HAproxy、Traefik、Envoy当用户请求时，先到达这个独特的调度器
+，而不是直接到达后端的Pod，Pod和Pod之间由于是在同一网段可以直接通信，无需经过Service。这个Pod就叫做
+Ingress Controller
+
+试想一种场景：
+
+当Ingress Controller调度不止一个Web服务的时候，我可以采用基于主机名的Virtual Host或URL映射的方式，但是当无状态的后端被Kill或增加减少的时候，Pod IP地址必然发生变化，这时候Ingress Controller是如何跟着做动态的变更呢？
+
+答案是 Ingress Controller仍需要借助
+Service的Selector功能
+帮助分类，关联着后端所有符合条件的Pod，当上述情况发生时，他会将变化反映至
+Ingress资源
+，（注意Ingress资源和Ingress Controller是两个概念。）再
+由Ingress资源把变化信息注入到Ingress Controller的配置文件
+中（非常方便），进而触发Ingress Controller重载配置文件的动作  （
+要求ingress controller能理解ingress资源，并把ingress资源以配置文件注入
+）
+
+部署方式：    单独几个节点作为ingress Controller的专用节点，把专用节点打上污点，让其他Pod都调度不上来
+
+Ingress Controller： 通常就是一个运行着有七层代理能力或调度能力的应用，比如：NGINX、HAproxy、Traefik、Envoy （
+把ingress资源得以实现的程序
+）
+
+Ingress规则：
+K8s中的一个抽象资源，给管理员 提供一个暴露应用的入口定义方法
+
+Ingress 工作原理
+
+●
+ingress controller通过和kubernetes api交互，动态的去感知集群中ingress规则变化，
+
+●
+然后读取它，按照自定义的规则，规则就是写明了哪个域名对应哪个service，生成一段nginx配置，
+
+●
+再写到nginx-ingress-controller的pod里，这个Ingress
+controller的pod里运行着一个Nginx服务，控制器会把生成的nginx配置写入/etc/nginx.conf文件中，
+
+●
+然后reload一下使配置生效。以此达到域名分配置和动态更新的问题。
+
+6.2） ingress-nginx
+
+6.2.1）安装部署
+
+6.2.2）Ingress简单配置
+
+●
+v1 ingress资源规范
+
+●
+案例1
+
+案例2：
+
+6.2.3）Ingress进阶
+
+1）rewrite
+
+禁用https强制跳转
+
+nginx.ingress.kubernetes.io/ssl-redirect: "false"
+
+2)
+Ingress-nginx的匹配请求头
+
+●
+nginx.ingress.kubernetes.io/configuration-snippet （用于插入 location 块代码段）
+
+●
+nginx.ingress.kubernetes.io/server-snippet （用于插入 server 块中的代码段）
+
+3) 跨域问题
+
+4）自定义超时
+
+5) 上传文件大小
+
+6) 会话粘性
+
+7) 灰度发布
+
+●
+nginx.ingress.kubernetes.io/canary-by-header
+：基于 Request Header 的流量切分，适用于灰度发布以及 A/B 测试。当 Request Header 设置为
+always
+时，请求将会被一直发送到 Canary 版本；当 Request Header 设置为
+never
+时，请求不会被发送到 Canary 入口；对于任何其他 Header 值，将忽略 Header，并通过优先级将请求与其他金丝雀规则进行优先级的比较。
+
+●
+nginx.ingress.kubernetes.io/canary-by-header-value
+：要匹配的 Request Header 的值，用于通知 Ingress 将请求路由到 Canary Ingress 中指定的服务。当 Request Header 设置为此值时，它将被路由到 Canary 入口。该规则允许用户自定义 Request Header 的值，必须与上一个 annotation (即：canary-by-header）一起使用。
+
+●
+nginx.ingress.kubernetes.io/canary-weight
+：基于服务权重的流量切分，适用于蓝绿部署，权重范围 0 - 100 按百分比将请求路由到 Canary Ingress 中指定的服务。权重为 0 意味着该金丝雀规则不会向 Canary 入口的服务发送任何请求。权重为 100 意味着所有请求都将被发送到 Canary 入口。
+
+●
+nginx.ingress.kubernetes.io/canary-by-cookie
+：基于 Cookie 的流量切分，适用于灰度发布与 A/B 测试。用于通知 Ingress 将请求路由到 Canary Ingress 中指定的服务的cookie。当 cookie 值设置为
+always
+时，它将被路由到 Canary 入口；当 cookie 值设置为
+never
+时，请求不会被发送到 Canary 入口；对于任何其他值，将忽略 cookie 并将请求与其他金丝雀规则进行优先级的比较。
+
+注意：金丝雀规则按优先顺序进行如下排序：
+
+canary-by-header - > canary-by-cookie - > canary-weight
+
+8）CertManager自动https
+
+cert-manager是一个云原生证书管理开源项目，用于在kubernetes集群中https证书并自动续期，支持Let's Encrypt/HashiCorp/Vault这些免费证书的签发，在kubernetes中，可以通过kubernetes ingress和Let's Encrypt实现外部服务的自动化https
+
+●
+Issuers： 证书颁发机构
+
+●
+certificates： 证书
+
+●
+cert-manager： 证书管理
+
+●
+Kubernetes secrets
+
+自定义资源对象： Issuer和Certificate
+
+生成免费证书
+
+我们需要先创建一个签发机构，cert-manager 给我们提供了 Issuer 和 ClusterIssuer 这两种用于创建签发机构的自定义资源对象，Issuer 只能用来签发自己所在 namespace 下的证书，ClusterIssuer 可以签发任意 namespace 下的证书，这里以 ClusterIssuer 为例创建一个签发机构：
+
+6.3）Traefik
+
+6.3.1） 安装部署
+
+6.3.2） Traefik简单配置
+
+6.3.3） Traefik进阶
+
+七、 存储卷与持久化
+
+7.1) 存储卷Volumes介绍
+
+为了保证数据的持久性，必须保证数据在外部存储在docker容器中，为了实现
+数据的持久性存储
+，在宿主机和容器内做映射，可以保证在容器的生命周期结束，数据依旧可以实现
+持久性存储
+。但是在k8s中，由于pod分布在各个不同的节点之上，并不能实现不同节点之间持久性数据的共享，并且，在节点故障时，可能会导致数据的永久性丢失。为此，k8s就引入了
+外部存储卷
+的功能。
+
+●
+持久化数据的程序才能用到Volumes，共享数据的容器、多个Pod之间共享数据都需要Volumes
+
+●
+中间件（ES,Redis,MySQL,RabbitMQ）等数据持久
+
+●
+日志收集（在应用Pod中加一个sinder，部署filebeat收集容器，和业务容器共享目录）
+
+k8s的存储卷类型：
+
+7.2） EmptyDir和HostPath、NFS共享存储
+
+A:   emptyDir（空目录）存储卷
+
+临时空间
+（临时存储）
+（1）暂存空间，基于磁盘的数据存储
+
+（2）作为从崩溃中恢复的备份点
+
+（3）存储那些那些需要长久保存的数据，例web服务中的数据
+
+存储位置：  SSD或者内存  （默认为硬盘SSD）--- 通过
+emptyDir.medium的值设置为Memory
+
+缺点： Pod删除后，数据会被删除
+
+B： hostPath存储卷
+
+作用： 在宿主机上创建主机目录，然后挂载到pod（不推荐使用）
+
+C、NFS共享存储
+
+7.3） PVC和PV
+
+7.3.1)概念
+
+Volumes缺点：
+
+●
+每个存储（比如HostPath，Ceph，NFS等）都有非常复杂的参数，对普通用户不适用
+
+●
+k8s集群，是多人使用，有些人不了解存储的相关配置，复杂度高
+
+●
+无法实现以只读方式的挂载
+
+●
+无法实现只能一个Pod挂载使用
+
+●
+无法限制Pod的使用空间
+PV访问及回收策略
+
+kubernetes提供那么多存储接口，但是首先kubernetes的各个Node节点能管理这些存储，但是各种
+存储参数也需要专业的存储工程师才能了解
+，由此我们的
+kubernetes管理变的更加复杂
+的。由此kubernetes提出了PV和PVC的概念，这样开发人员和使用者就不需要关注后端存储是什么，使用什么参数等问题
+
+PersistentVolume（PV）是集群中已由管理员配置的一段
+网络存储
+。 集群中的资源就像一个节点是一个集群资源。 PV是诸如
+卷之类的卷插件
+，但是具有独立于使用PV的任何单个pod的生命周期。 该API对象捕获存储的实现细节，即NFS，iSCSI或云提供商特定的存储系统
+
+PersistentVolumeClaim（PVC）是用户存储的请求。PVC的使用逻辑：在pod中定义一个存储卷（该存储卷类型为PVC），定义的时候直接指定大小，pvc必须与对应的pv建立关系，pvc会根据定义去pv申请，而pv是由存储空间创建出来的。pv和pvc是kubernetes抽象出来的一种存储资源
+
+这里有两种PV的提供方式:静态或者动态
+
+静态-->直接固定存储空间
+集群管理员创建一些 PV。它们携带可供集群用户使用的真实存储的详细信息。 它们存在于Kubernetes API中，可用于消费
+
+动态-->通过存储类进行动态创建存储空间
+当管理员创建的静态 PV 都不匹配用户的 PVC 时，集群可能会尝试动态地为 PVC 配置卷。此配置基于
+StorageClasses
+：PVC 必须请求存储类，并且管理员必须已创建并配置该类才能进行动态配置。 要求该类的声明有效地为自己禁用动态配置。
+
+7.3.2）NFS使用PV和PVC
+
+7.3.3) 存储类StorageClass
+
+在pv和pvc使用过程中存在的问题，在pvc申请存储空间时，未必就有现成的pv符合pvc申请的需求，就需要管理员创建好对应的pv；因为引入了storageclass存储类，举个例子，在存储系统中划分一个1TB的存储空间提供给Kubernetes使用，当用户需要一个
+10G的PVC
+时，会立即通过
+restful发送请求
+，从而让存储空间创建一个
+10G的image
+，之后在我们的集群中定义成10G的PV供给给当前的PVC作为挂载使用（storageclass自动创建pv）
+
+文档：
+http://docs.kubernetes.org.cn/803.html#StorageClass
+
+7.3.5）kubernetes与ceph对接
+
+注意： 该ceph是通过传统方式部署的，不是通过rook-ceph，通过rook部署的ceph对接方式，参考其他文档
+
+7.3.6）kubernetes与glusterfs对接
+
+7.3.7）在k8s中部署glusterfs-kubernetes
+
+GlusterFS是一个开源的分布式文件系统，具有强大的横向扩展能力，通过扩展能够支持数PB存储容量和处理数千客户端，GlusterFS借助
+TCP/IP或InfiniBandRDMA
+网络将物理分布的存储资源聚集在一起，使用单一全局命名空间来管理数据。
+h
+eketi（
+https://github.com/heketi/heketi），是一个基于RESTful
+
+API的GlusterFS卷管理框架。Heketi可以方便地和云平台整合，提供RESTful API供Kubernetes调用，实现多GlusterFS集群的卷管理
+
+环境：
+
+给安装glusterfs机器打label
+
+每台机器都安装glusterfs得客户端软件和加载需要得内核模块(所有节点）
+
+部署GlusterFS(master01节点）
+
+部署heketi server端
+
+配置heketi client
+
+需要说明的是，heketi的客户端版本需要与server端对应，server端我们使用的是7.0，所以客户端也需要下载7.0版本
+
+7.4)  云盘的备份、恢复
+
+特点： 云盘具备数据的持久性，可以节点的迁移能力，在数据库容灾方面，可以通过云盘的备份、恢复来实现
+
+配置： 通过ACK提供volumesnapshot能力提供云盘卷的备份功能，通过pvc的datasource功能，实现云盘数据的恢复能力
+
+八、ConfigMap和Secret
+
+背景
+
+●
+镜像中，修改一些参数，比较麻烦，需要重新制作镜像
+
+●
+应用程序开发，涉及到配置文件的变更，每个环境连接的地址都不一样，更改比较麻烦，需要把配置和代码分离
+
+kubernetes也提供了自己的一套方案，即ConfigMap。kubernetes通过ConfigMap来实现对容器中应用的配置管理
+
+8.1）ConfigMap
+
+8.1.1）
+configmap简介
+
+在生产环境中，经常会遇到需要修改配置文件的情况，
+传统的修改方式不仅会影响到服务的正常运行，而且操作步骤也很繁琐。为了解决这个问题，kubernetes项目从1.2版本引入了
+ConfigMap功能，用于将应用的配置信息与程序的分离。在创建容器时，用户可以将应用程序打包为容器镜像后，通过环境变量或者外接挂载文件的方式进行配置注入。
+
+●
+Configmap用于保存配置数据，以键值对形式存储
+
+●
+configMap 资源提供了向 Pod 注入配置数据的方法
+
+8.1.2）创建ConfigMap的方式
+
+●
+使用字面值创建
+
+●
+使用文件创建
+
+●
+使用目录创建
+
+●
+编写configmap的yaml文件创建
+
+8.1.3）如何使用Configmap
+
+●
+通过环境变量的方式直接传递给pod
+
+●
+通过volumeMount挂载的方式
+
+●
+通过envFrom方式
+
+8.1.4)
+configmap热更新
+
+●
+使用该 ConfigMap 挂载的 Env 不会同步更新
+
+●
+使用该 ConfigMap 挂载的 Volume 中的数据需要一段时间（实测大概10秒）才能同步更新
+
+configMap更新后，如果想使pod中引用configMap的变量生效，
+
+方法1. 删除该pod，让其自动产生一份新的pod.
+
+方法2. 修改pod的配置，让其自动产生一份新的pod.
+
+方法3. 增加一个sidecar，让其监控configMap的变化，来重启pod.
+
+8.1.5)
+使用ConfigMap的限制条件
+
+●
+ConfigMap必须在Pod之前创建
+
+●
+ConfigMap受Namespace限制，只有处于相同Namespace中的Pod才可以引用它
+
+●
+ConfigMap中的配额管理还未能实现
+
+●
+kubelet只支持可以被API Server管理的Pod使用ConfigMap
+
+8.2）Secret
+
+8.2.1）Secret简介
+
+secret对象类型用来
+保存敏感信息
+，例如密码、OAuth令牌和ssh key，敏感信息放在Secret中比放在Pod的定义或者容器镜像中来说更加安全和灵活
+
+8.2.2） Secret类型
+
+●
+Qpaque  通用型Secret，默认类型
+
+●
+kubernetes.io/service-account-token   作用于ServiceAccount，包含一个令牌，用于标识API服务账户
+
+●
+kubernetes.io/dockerconfigjson  私有仓库镜像使用的secret
+
+●
+kubernetes.io/basic-auth   用于使用基本认证的secret
+
+●
+kubernetes.io/ssh-auth    用户存储ssh密钥的secret
+
+●
+kubernetes.io/tls  用于存储https域名证书文件的secret，可以被ingress使用
+
+●
+bootstrap.kubernetes.io/token  用于创建新集群或将新节点添加到现有集群中，在集群安装时用于自动办法集群的证书
+
+8.2.3) 如何创建Secret
+
+●
+通过命令创建SECRET
+
+●
+通过yaml文件创建
+
+8.2.4）如何使用Secret
+
+8.3）downwardAPI
+
+Downward API
+提供了两种方式用于将 POD 的信息注入到容器内部：
+
+●
+环境变量：用于单个变量，可以将 POD 信息和容器信息直接注入容器内部。
+
+●
+Volume
+挂载：将 POD 信息生成为文件，直接挂载到容器内部中去
+
+8.3.1)环境变量
+
+fieldRef:
+
+●
+metadata.annotations
+
+●
+metadata.labels
+
+●
+metadata.name
+
+●
+metadata.namespace
+
+●
+metadata.uid
+
+●
+status.podIP
+
+●
+spec.nodeName
+
+●
+spec.serviceAccountName
+
+resourceFieldRef:
+
+●
+limits.cpu
+
+●
+requests.cpu
+
+●
+limits.memory
+
+●
+requests.memory
+
+8.3.2)通过volume挂载
+
+九、认证、授权和准入控制
+
+9.1）Kubernetes认证及Service Account
+
+Service Account为pod中进程和外部用户提供身份信息，所有的kubernetes集群中账户分为：
+
+●
+ServiceAccount 服务账户  （pod访问，pod容器）
+
+●
+userAccount 用户账户  （外部访问，集群外部用户）
+
+认证方式： 所有认证都可以通过插件的方式让客户自定义，客户端请求的时候先需要认证，认证通过后再进行授权检查，有些操作需要级联到其他资源或者环境，级别环境是否有授权，需要准入控制。
+
+认证插件：
+
+●
+token：  当使用来自http客户端的toke时，API Server期望Authorization header中包含token的值。token是一个字符串列表（共享密钥）
+
+●
+客户端证书： 客户端请求前，需要发送API Server的颁发的证书，由API Server来确认是否他来签署的，若客户端证书已提交并验证，使用subject的CN作为请求的用户名。反过来，API Server也要验证客户端的证书（双向验证）
+
+kubectl访问cluster集群，也需要进行认证，kubectl客户端可以运行在任何节点上，甚至运行在集群外部
+
+kubectl的认证过程：
+
+使用kubeconfig文件来组织有关集群，用户，命名空间和身份认证机制的信息，kubectl命令行工具使用kubeconfig文件来查找选择集群所需的信息，并与集群的API服务器进行通信
+
+●
+clusters ：配置要访问的kubernetes集群
+
+●
+contexts ：配置访问kubernetes集群的具体上下文环境
+
+●
+current-context: 配置当前使用的上下文环境
+
+●
+users： 配置访问的用户信息，用户名以及证书信息
+
+Service Account：
+
+每个Namespace下都有
+一个名为default的默认的Service Account对象
+，这个SA里面有一个名为tokens的可以当作Volume一样被mount到Pod里的secret，当pod启动时候，这个Secret会自动mount到Pod的指定目录下
+
+9.2)RBAC基于角色的访问控制
+
+RBAC是基于角色的访问控制 (Role-Based Access Control) 在RBAC中，权限与角色相关联。Kubernetes 基于角色的访问控制使用rbac.authorization.k8s.io API组来实现权限控制，RBAC允许管理员通过Kubernetes API动态的配置权限策略。如果需要开启RBAC授权需要在apiserver组件中指定--authorization-mode=Node,RBAC
+
+Role：                角色，规则    （
+对Kubernetes API对象的操作权限
+）
+
+Subject：            被作用者，可以是人，也可以是机器
+
+RoleBinding:     定义了”被作用者”和”角色”的绑定关系
+
+RBAC API对象
+
+操作
+动作
+
+Role和RoleBinding
+
+作用:
+Role和RoleBinding 他们的权限限制规则仅仅在他们自己的namespace内有效，roleRef也只能引用当前namespace里的Role对象
+
+Role：
+
+RoleBinding
+
+十、网络模型及网络策略
+
+10.1) 传统网络VxLAN实现大二层
+
+VLAN扩展方案VXLAN，采用MAC in UDP的封装方式，是NVO3中的一种网络虚拟化技术
+
+服务器虚拟化技术的广泛部署带来的新挑战
+
+●
+MAC地址表数量的大量增加
+
+●
+VLAN数量仅4096个，对于公有云多租户场景，无法满足需求
+
+●
+虚拟机迁移范围受限
+
+针对传统数据中心面临的问题，VXLAN技术很好的解决上面提到的限制
+
+●
+VXLAN引入了类似VLAN ID的用户标识，称为VXLAN网络标示VNI（VXLANnetwork ID），由24位比特组成，支持多达16M的VXLAN段，从而满足了大量的用户标识
+
+●
+VXLAN将虚拟机发出的数据包封装在UDP中，并使用物理网络的IP/MAC地址作为外层进行封装
+
+●
+VXLAN构建大二层网络，保证了在虚拟机迁移时虚拟机的IP地址MAC地址等保持不变，保障迁移过程中网络不中断
+
+VXLAN应用场景
+
+●
+相同网段不同站点间通信
+
+某企业在不同数据中心（物理上隔离）都有有VM，且位于同一网段，现需要实现不同数据中心相同网段的VM互通
+
+●
+不同网段不同站点间通信
+
+某企业在不同的数据中心有VM，且位于不同网段，先需要实现该企业不同网段VM之间互通,将Switch-3设备作为VXLAN三层网关，其他交换机作为VXLAN的二层网关，交换机设备之间建立VXLAN隧道，通过VXLAN三层网关实现不同网段的终端用户互通
+
+●
+虚拟机在不同站点间迁移
+
+Cluster1上显示计算资源不足，而Cluster2未充分利用，网络管理员需要将工程部分迁移到Cluster2上，而且不影响业务正常运行
+
+VXLAN原理描述
+
+VXLAN是一种大二层的虚拟技术,引入了一个UDP外层隧道，作为数据的链路层，而原有的数据报文内容作为隧道净荷来传输，由于外层采用了UDP作为传出手段，就可以让净荷数据轻而易举的在二三层网络中传送
+
+VXLAN技术将已有的三层物理网络作为underlay网络，在其上构建出虚拟的二层网络，即overlay网络
+
+●
+VM（VirtualMachine，虚拟机）：在一台设备上可以创建多台虚拟机，不同的虚拟机可以属于不同的VXLAN。属于相同的VXLAN的虚拟机处于同一个逻辑二层网络，彼此之间二层互通，属于不同VXLAN的虚拟机之间二层隔离。VXLAN通过
+VXLANID来标识
+，又被称为VNI（VXLAN network identifier，VXLAN网络标识符），其长度为24比特。
+
+●
+VTEP（VXLAN tunnelend point，VXLAN隧道端点）：VXLAN的边缘设备，针对VXLAN的处理都在VTEP上进行，例如识别以太网数据帧所属的VXLAN，基于VXLAN对数据帧进行二层转发、封装/解封装报文等。VTEP可以是一台独立的物理设备也可以是虚拟机所在的服务器。
+
+●
+VXLAN隧道：
+两个VTEP之间的点到点的逻辑隧道
+，VTEP为数据帧封装VXLAN头，UDP头和IP头，通过VXLAN隧道将封装后的报文传递到远端VTEP，远端VTEP设备对其进行解封装。
+
+●
+核心设备：IP核心网络中的设备，其核心设备不需要参与VXLAN的处理，仅需根据封装后报文的目的IP地址地报文进行三次转发。
+
+●
+VSI（VirtualSwitch Instance，虚拟交换实例）：VTEP上为一个VXLAN提供二层交换服务的虚拟交换实例，可以看做是VTEP设备上一台基于VXLAN进行二层转发的虚拟交换机，它可以具有传统以太网交换机所具有的所有功能，包括源MAC地址的学习、MAC地址老化，洪泛等。VSI与VXLAN一一对应。
+
+其中，VxLAN 头由 8Bytes 组成，分别是：
+
+●
+Flags：占 8bits，具体是
+
+RRRRIRRR
+，其中
+
+I
+
+必须设置为 1，表示是是一个合法的 VxLAN ID，其它 7bits 的
+
+R
+
+作为保留字段并且设置为 0。
+
+●
+VNI(VxLAN Network Identifier)：占 24bits，VxLAN 的 ID 标识，这个字段就对比于 12bits 的 VLAN ID，支持 ID 个数扩展为
+
+2^24 = 16777216
+，约等于 16M 个。
+
+●
+Reserved：有两个字段，分别占 24 bits 和 8 bits，作为保留字段并且设置为 0。
+
+对于 UDP 头部，需要注意的是，目的端口(dst port) 默认设置为 4789，这是 IANA 分配的 VxLAN 协议使用端口号。其余字段都是我们常见的 TCP/IP 协议字段
+
+VXLAN网络数据传输
+
+假如图中 VM1 ping VM2，会是怎样一个通信过程：
+
+●
+VM1 不知道 VM2 的 MAC 地址，会发出 ARP 请求。
+
+●
+VM1 所在主机的
+VTEP 封装 ARP 请求包
+，并向网络中其余 VTEP 广播。同时在
+MAC 地址表中记录 VM1
+的表项（广播）
+
+●
+VM2 所在主机的 VTEP 接收 ARP 请求包，解封装之后将原始包发到 VM2，同时记录
+VM1 的 MAC 地址表
+项。
+
+●
+VM2 发出 ARP 响应，经过 VTEP，再次封装之后，由于之前学习到 VM1 的地址，所以直接单播发给 VM1 所在主机的 VTEP，同时记录 VM2 的 MAC 地址表项（单播）
+
+●
+VM1 所在主机 VTEP 接收 ARP 响应包，解封装之后发给 VM1，同时记录
+VM2 的 MAC 地址表
+项。
+
+●
+VM1 拿到 VM2 的 MAC 地址之后，发出 ICMP 包，这个时候 VTEP 的 MAC 地址表中已经学习到 VM2 的地址，所以直接封装之后，单播发给 VM2 所在主机 VTEP。（单播）
+
+●
+VM2 所在主机 VTEP 解封装之后，直接发给 VM2。
+
+●
+VM2 构造 ICMP 的响应包，同样的过程发给 VM1，至此完成整个 ping 的过程。
+
+VXLAN技术详细：
+https://blog.csdn.net/u013743253/article/details/80504551
+
+10.2) flannel网络
+
+1）将容器接入虚拟网络的方式
+
+●
+虚拟网桥（linuxbridge，openvswitch）
+
+●
+多路复用（macVlan，IPVlan）
+
+●
+单根网络（硬件交换）
+
+2）构建出虚拟网络
+
+overlayNetwork
+
+每个节点上都有一个cni0虚拟网桥，节点上pod（容器）的网口，一端在pod，一端接到cni网桥上，在每个节点在创建一个隧道接口flannel0，如图
+
+隧道转发的本质是将容器双方的通信报文分别封装成各自宿主机之间的报文，借助宿主机的网络“隧道”完成数据交换。这种虚拟网络的基本要求是各宿主机只需支持隧道协议即可，对于底层网络没有特殊要求。
+VXLAN协议是目前最流行的Overlay网络隧道协议之一
+，它也是由IETF定义的NVO3（Network Virtualization over Layer 3）标准技术之一，采用L2 over L4（MAC-in-UDP）的报文封装模式，将二层报文用三层协议进行封装，可实现二层网络在三层范围内进行扩展，将“二层域”突破规模限制形成“大二层域”
+
+3）flannel
+
+10.3) calico网络
+
+Calico主要由Felix、etcd、BGP client以及BGP Route Reflector组成
+
+●
+Felix，Calico Agent，跑在每台需要运行Workload的节点上，主要负责配置路由及ACLs等信息来确保Endpoint的连通状态；
+
+●
+etcd，分布式键值存储，主要负责网络元数据一致性，确保Calico网络状态的准确性；
+
+●
+BGP Client（BIRD）, 主要负责把Felix写入Kernel的路由信息分发到当前Calico网络，确保Workload间的通信的有效性；
+
+●
+BGP Route Reflector（BIRD），大规模部署时使用，摒弃所有节点互联的 mesh 模式，通过一个或者多个BGP Route Reflector来完成集中式的路由分发。
+
+●
+calico/calico-ipam，主要用作Kubernetes的CNI插件
+
+安装calico
+
+参考官网：
+https://docs.projectcalico.org/getting-started/kubernetes/self-managed-onprem/onpremises
+
+以50各节点以下为例
+
+10.3.2) 配置calico BGP模式、BGP路由反射器
+
+10.3.3) calico网络策略
+
+●
+
+●
+通过kubectl client创建network policy资源；
+
+●
+calico的policy-controller监听network policy资源，获取到后写入calico的etcd数据库；
+
+●
+node上calico-felix从etcd数据库中获取policy资源，调用iptables做相应配置。
+
+十一、Pod资源调度
+
+1）存在的问题：
+
+●
+当我们运行多个pod，有可能多个pod会运行在同一台host或者同一个机房、同一个区域
+
+●
+我们需要把pod运行在指定标签的节点上，但是使用nodeSelector会导致，若节点没有这个指标，pod就会一直pending
+
+●
+我们希望关系密切的2个pod运行在同一个节点上
+
+为了提高服务的可用性，降低故障，尽量让pod运行在不同的地方，不要把鸡蛋放在同一个篮子里。Kubernete引入了Affinity亲和性配置，具体分类如下：
+
+●
+pod与节点的关系 （亲和力，反亲和力）
+
+nodeAffinity 亲和力  （注： 反亲和力通过参数配置）
+
+●
+Pod与Pod之间的关系 （亲和力，反亲和力）
+
+podAffinity  亲和力
+
+podAntiAffinity  反亲和力
+
+1、节点亲和调度
+
+2、Pod亲和调度
+
+3、污点和容忍度
+
+Taint和Toleration设计理念
+
+在生产环境的k8s集群中，有各种不同类型的节点，比如master节点就不允许运行业务pod，比如有些节点上拥有昂贵的GPU资源，我们希望特别的容器运行到该node节点上，同时有时候机器硬件出故障，我们也需要把该节点上的pod驱逐出去，针对这些情况，我们可以给每个节点打上特殊的污点，只有能容忍这个污点的pod，可以被调度到该node节点上
+
+Taint:  在一类服务器上打上污点，让不能容忍这个污点的Pod不能部署到打了污点的服务器上
+
+Toleration:  让Pod容忍节点上配置的污点
+
+配置解析
+
+4、Pod优选级和抢占式调度
+
+5、initContainers初始化容器
+
+注意：
+
+●
+
+init 容器不支持
+lifecycle
+,
+livenessProbe
+,
+readinessProbe
+, 或
+startupProbe，执行完后退出
+
+●
+如果pod的init容器失败，kubernetes会不断的重启pod，知道init容器成功为止，但是pod的restartPolicy策略为never
+
+kubernetes则不会重启pod
+
+5.1）初始化initContainer容器的用途
+
+●
+可以包含并且运行一些出于安全考虑不适合和应用放在一块的小工具.(缩小业务应用容器的大小）
+
+●
+以root身份运行，执行一些高权限的指令 （业务容器以普通用户运行）
+
+●
+在应用容器启动前运行,因此它们可以阻止或者延缓普通应用容器的初始化直到需要的条件满足
+
+●
+在业务容器启动之前，执行特定的操作，如果下载文件，测试网络、请求接口等
+
+5.2）案例1
+
+5.3) 案例2
+
+6、临时容器EphemeralContainer
+
+注意： 这个是
+kubernetes1.16
+以后引入的功能
+
+临时容器作用：
+
+●
+从镜像的角度，讨论容器的安全，
+业务容器上能不安装的命令，都不要安装，包括bash，sh
+
+●
+但排查问题，我们需要登录容器，此时业务容器又没有bash，sh，无法排查
+
+●
+这个时候临时容器EphemeralContainer通过注入的方式，注入到原业务容器里
+
+案例1：
+
+十二、 Kubernetes高级调度准入控制
+
+1）Kubernetes资源配额
+
+作用： 在名称空间下，限制某个项目组资源的使用，比如内存，cpu，空间，pod数量，services数量等等，避免该项目组使用完整个k8s资源，导致其他项目组无资源使用
+
+●
+为什么要使用资源配额ResourceQuota
+
+在公司，kubernetes集群有多个项目组使用，管理员知道集群的资源情况，但是其他项目组人员，并不知道
+
+k8s集群资源的情况，而且有些资源不使用，也不及时删除，所以造成资源的的浪费，正常的资源无法运行。
+
+因此kubernetes引入了资源配额的配置
+
+●
+资源配额配置解析
+
+针对不同的名称空间（namespace）进行限制
+
+2）LimitRange、Requests、Limits
+
+作用：  当启动的Pod没有配置Resources，通过在名称空间下配置LimitRange限制资源，避免某个pod占用整个ResourceQuota资源。
+
+当启动一个Pod没有配置resources参数，这个时候会
+应用limitRange配置中的限制
+
+参考官网：
+https://kubernetes.io/zh/docs/tasks/administer-cluster/manage-resources/cpu-constraint-namespace/
+
+3）Qos服务质量
+
+作用： 当节点资源不足的时候，保障重要的Pod资源不被系统OOM
+
+Resources配置的重要性：
+
+●
+如果启动的pod没有配置Resources，可能该资源会被调度到没有什么资源的节点上（因为感知不到），就会造成节点OOM，就会导致重启节点上的pod资源（释放资源）
+
+●
+虽然配置了resources，但是也不能保证每个pod都实实可用的（因为程序运行，CPU或内存资源会不断的增加使用），也会导致OOM
+
+QoS优先级
+
+Guaranteed： 最高服务质量（当宿主机内存不足，会先Kill调Qos为BestEffort和Burstable的pod，如果内存还不足，在kill掉Qos为Guaranteed的）  Requests中cpu和内存和limits中cpu和内存配置一致
+
+Burstable： 服务质量低于Guaranteed，（当宿主机内存不足，会先Kill调Qos为BestEffort，如果内存还不够，就会kill掉Qos级别为Burstable的pod，来保护Qos质量为Guaranteed的pod） 即Limits字段中的cpu和memory大于requests的cpu和memory的配置
+
+BestEffort： 尽量而为，当宿主机内存不够，首先kill就是该Qos的Pod，用以保障Burstable和Guaranteed级别的pod正常运行，即没有配置Resources
+
+十三、资源指标及HPA控制器
+
+我们使用用一个 kubectl scale 命令可以来实现 Pod 的扩缩容功能，但是这个毕竟是完全手动操作的，要应对线上的各种复杂情况，我们需要能够做到自动化去感知业务，来自动进行扩缩容。为此，Kubernetes 也为我们提供了这样的一个资源对象：Horizontal Pod Autoscaling（Pod 水平自动伸缩），简称HPA，HPA 通过监控分析一些控制器控制的所有 Pod 的负载变化情况来确定是否需要调整 Pod 的副本数量，这是 HPA 最基本的原理
+
+在 HPA 的第一个版本中，我们需要 Heapster 提供 CPU 和内存指标，在 HPA v2 过后就需要安装 Metrcis Server 了，Metrics Server 可以通过标准的 Kubernetes API 把监控数据暴露出来，有了 Metrics Server 之后，我们就完全可以通过标准的 Kubernetes API 来访问我们想要获取的监控数据了
+
+A:  Metrics 安装
+¶
+
+所以现在我们要使用 HPA，就需要在集群中安装
+Metrics Server
+服务，要安装
+Metrics Server
+就需要开启
+Aggregator
+，因为
+Metrics Server
+就是通过该代理进行扩展的，不过我们集群是通过 Kubeadm 搭建的，默认已经开启了，如果是二进制方式安装的集群，需要单独配置 kube-apsierver 添加如下所示的参数：
+
+如果
+
+kube-proxy
+
+没有和 APIServer 运行在同一台主机上，那么需要确保启用了如下 kube-apsierver 的参数：
+
+Aggregator
+
+聚合层启动完成后，就可以来安装
+
+Metrics Server
+
+了，我们可以获取该仓库的官方安装资源清单：
+
+# 官方仓库地址：https://github.com/kubernetes-sigs/metrics-server
+
+因为部署集群的时候，CA 证书并没有把各个节点的 IP 签上去，所以这里
+
+Metrics Server
+
+通过 IP 去请求时，提示签的证书没有对应的 IP（错误：
+x509: cannot validate certificate for 10.151.30.22 because it doesn’t contain any IP SANs
+），我们可以添加一个
+--kubelet-insecure-tls
+参数跳过证书校验：
+
+现在我们可以通过
+kubectl top
+命令来获取到资源数据了，证明
+Metrics Server
+已经安装成功了。
+
+HPA
+
+我们可以看到上面的事件信息里面出现了
+failed to get cpu utilization: missing request for cpu
+这样的错误信息。这是因为我们上面创建的 Pod 对象没有添加 request 资源声明，这样导致 HPA 读取不到 CPU 指标信息，所以如果要想让 HPA 生效，对应的 Pod 资源必须添加 requests 资源声明，更新我们的资源清单文件
+
+十四、Helm程序包管理
+
+14.1）helm基础
+
+1）helm3安装部署
+
+helm 常见的命令
+
+命令
+
+描述
+
+create
+
+创建一个chart并指定名字
+
+dependency
+
+管理chart依赖
+
+get
+
+下载一个release。可用子命令：all、hooks、manifest、notes、values
+
+history
+
+获取release历史
+
+install
+
+安装一个chart
+
+list
+
+列出release
+
+package
+
+将chart目录打包到chart存档文件中
+
+pull
+
+从远程仓库中下载chart并解压到本地 # helm pull stable/mysql --untar
+
+repo
+
+添加，列出，移除，更新和索引chart仓库。可用子命令：add、index、list、remove、update
+
+rollback
+
+从之前版本回滚
+
+search
+
+根据关键字搜索chart。可用子命令：hub、repo
+
+show
+
+查看chart详细信息。可用子命令：all、chart、readme、values
+
+status
+
+显示已命名版本的状态
+
+template
+
+本地呈现模板
+
+uninstall
+
+卸载一个release
+
+upgrade
+
+更新一个release
+
+version
+
+查看helm客户端版本
+
+三大概念
+
+●
+Chart
+
+代表着 Helm 包。它包含在 Kubernetes 集群内部运行应用程序
+，工具或服务所需的所有资源定义。你可以把它看作是 Homebrew formula，Apt dpkg，或 Yum RPM 在Kubernetes 中的等价物。
+
+●
+Repository（仓库）
+是
+用来存放和共享 charts 的地方
+。它就像 Perl 的
+CPAN 档案库网络
+或是 Fedora 的
+软件包仓库
+，只不过它是供 Kubernetes 包所使用的。
+
+●
+Release
+是
+运行在 Kubernetes 集群中的 chart 的实例
+。一个 chart 通常可以在同一个集群中安装多次。每一次安装都会创建一个新的
+release
+。以 MySQL chart为例，如果你想在你的集群中运行两个数据库，你可以安装该chart两次。每一个数据库都会拥有它自己的
+release
+和
+release name
+。
+
+https://blog.csdn.net/twingao/article/details/104282223
+
+14.2）chart模板
+
+helm内置对象
+
+Helm 模板之模板函数与管道
+
+helm中template与include区别
+
+●
+本质上 template和include都是操作而不是函数，数据只是进行了
+内联插入
+这个操作
+
+●
+无法
+将template调用的输出传递给其他函数
+
+●
+include调用的输出
+可以
+通过管道符传递给其他函数。
+
+Helm 模板之控制流程
+
+控制流程为我们提供了控制模板生成流程的一种能力，Helm 的模板语言提供了以下几种流程控制：
+
+●
+if/else
+
+条件块
+
+●
+with
+
+指定范围
+
+●
+range
+
+循环块
+
+除此之外，它还提供了一些声明和使用命名模板段的操作：
+
+●
+define
+在模板中声明一个新的命名模板
+
+●
+template
+导入一个命名模板
+
+●
+block
+声明了一种特殊的可填写的模板区域
+
+十五： argoCD应用中心
+
+15.1）argoCD安装部署
+
+十六、故障排查指南
+
+1、Pod故障排错
+
+1.1）Pod 一直处于 Pending 状态
+
+Pending 状态说明 Pod 还没有被调度到某个节点上，需要看下 Pod 事件进一步判断原因，比如:
+
+导致出现pending的原因有如下
+
+●
+节点资源不够  （
+CPU 负载过高，剩余可以被分配的内存不够，剩余可用 GPU 数量不够
+）
+
+如果判断某个 Node 资源是否足够？ 通过
+
+kubectl describe node <node-name>
+
+查看 node 资源情况，关注以下信息：
+
+Allocatable
+: 表示此节点能够申请的资源总和
+
+Allocated resources
+: 表示此节点已分配的资源 (Allocatable 减去节点上所有 Pod 总的 Request)
+
+前者与后者相减，可得出剩余可申请的资源。如果这个值小于 Pod 的 request，就不满足 Pod 的资源要求，Scheduler 在 Predicates (预选) 阶段就会剔除掉这个 Node，也就不会调度上去
+
+●
+不满足 nodeSelector 与 affinity
+
+如果pod配置了nodeSelector和affinity，指定节点需要包含的label，调度器只会江pod调度到包含这些label的node节点上，如果没有node有这些label的node，将不会被调度（无法调度）
+参考官方文档：
+https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#nodeselector
+
+如果 Pod 包含 affinity（亲和性）的配置，调度器根据调度算法也可能算出没有满足条件的 Node，从而无法调度。affinity 有以下几类:
+
+nodeAffinity: 节点亲和性，可以看成是增强版的 nodeSelector，用于限制 Pod 只允许被调度到某一部分 Node。
+
+podAffinity: Pod 亲和性，用于将一些有关联的 Pod 调度到同一个地方，同一个地方可以是指同一个节点或同一个可用区的节点等。
+
+podAntiAffinity: Pod 反亲和性，用于避免将某一类 Pod 调度到同一个地方避免单点故障，比如将集群 DNS 服务的 Pod 副本都调度到不同节点，避免一个节点挂了造成整个集群 DNS 解析失败，使得业务中断
+
+●
+Node 存在 Pod 没有容忍的污点
+
+如果节点上存在污点 (Taints)，而 Pod 没有响应的容忍 (Tolerations)，Pod 也将不会调度上去。通过 describe node 可以看下 Node 有哪些 Taints:
+
+●
+kube-scheduler 没有正常运行
+
+检查 maser 上的
+
+kube-scheduler
+
+是否运行正常，异常的话可以尝试重启临时恢复。
+
+●
+驱逐后其它可用节点与当前节点有状态应用不在同一个可用区
+
+1.2) Pod 一直处于 ImagePullBackOff 状态
+
+●
+http 类型 registry，地址未加入到 insecure-registry
+
+●
+https 自签发类型 resitry，没有给节点添加 ca 证书
+
+●
+私有镜像仓库认证失败
+
+●
+镜像文件损坏
+
+●
+镜像拉取超时
+
+●
+镜像不不存在
+
+1.3)  Pod 一直处于 CrashLoopBackOff 状态
+
+pod 如果处于
+CrashLoopBackOff
+状态说明之前是启动了，只是又异常退出了，只要 Pod 的
+restartPolicy
+不是 Never 就可能被重启拉起，此时 Pod 的
+RestartCounts
+通常是大于 0 的，可以先看下容器进程的退出状态码来缩小问题范围
+
+●
+容器进程主动退出  (业务程序Bug，DNS无法解析，程序配置错误）
+
+1.3.1）DNS无法解析
+
+可能程序依赖 集群 DNS 服务，比如启动时连接数据库，数据库使用 service 名称或外部域名都需要 DNS 解析，如果解析失败程序将报错并主动退出。解析失败的可能原因:
+
+集群网络有问题，Pod 连不上集群 DNS 服务
+
+集群 DNS 服务挂了，无法响应解析请求
+
+Service 或域名地址配置有误，本身是无法解析的地址
+
+1.3.2） 程序配置有误
+
+配置文件格式错误，程序启动解析配置失败报错退出
+
+配置内容不符合规范，比如配置中某个字段是必选但没有填写，配置校验不通过，程序报错主动退出
+
+●
+系统 OOM
+
+如果发生系统 OOM，可以看到 Pod 中容器退出状态码是 137，表示被
+SIGKILL
+信号杀死，同时内核会报错:
+Out of memory: Kill process
+
+●
+健康检查失败
+
+●
+节点内存碎片化
+
+●
+cgroup OOM
+
+如果是 cgrou OOM 杀掉的进程，从 Pod 事件的下 Reason 可以看到是 OOMKilled，说明容器实际占用的内存超过 limit 了，同时内核日志会报: ``。 可以根据需求调整下 limit
+
+1.4） Pod一直处于ContainerCreating或Waiting状态
+
+●
+Pod 配置错误
+
+检查是否打包了正确的镜像
+
+检查配置了正确的容器参数
+
+●
+挂载 Volume 失败
+
+●
+磁盘爆满
+
+启动 Pod 会调 CRI 接口创建容器，容器运行时创建容器时通常会在数据目录下为新建的容器创建一些目录和文件，如果数据目录所在的磁盘空间满了就会创建失败并报错
+
+●
+limit 设置太小或者单位不对
+
+●
+CNI 网络错误 （无法获取Pod的地址）
+
+●
+controller-manager 异常
+
+查看 master 上 kube-controller-manager 状态，异常的话尝试重启。
+
+●
+挂载 configmap/secret错误
+
+1.5）Pod一直处于Error状态
+
+●
+依赖的 ConfigMap、Secret 或者 PV 等不存在
+
+●
+请求的资源超过了管理员设置的限制，比如超过了 LimitRange 等
+
+●
+违反集群的安全策略，比如违反了 PodSecurityPolicy 等
+
+●
+容器无权操作集群内的资源，比如开启 RBAC 后，需要为 ServiceAccount 配置角色绑定
+
+1.6）Pod一直处于Terminating状态Unknown 状态
+
+●
+磁盘爆满
+
+如果 docker 的数据目录所在磁盘被写满，docker 无法正常运行，无法进行删除和创建操作，所以 kubelet 调用 docker 删除容器没反应
+
+●
+存在 Finalizers
+
+k8s 资源的 metadata 里如果存在
+finalizers
+，那么该资源一般是由某程序创建的，并且在其创建的资源的 metadata 里的
+finalizers
+加了一个它的标识，这意味着这个资源被删除时需要由创建资源的程序来做删除前的清理，清理完了它需要将标识从该资源的
+finalizers
+中移除，然后才会最终彻底删除资源。比如 Rancher 创建的一些资源就会写入
+finalizers
+标识。
+
+处理建议：
+kubectl edit
+手动编辑资源定义，删掉
+finalizers
+，这时再看下资源，就会发现已经删掉了
+
+●
+存在 “i” 文件属性
+
+通常是节点失联，没有上报状态给 apiserver，到达阀值后 controller-manager 认为节点失联并将其状态置为
+Unknown
+
+可能原因:
+
+●
+节点高负载导致无法上报
+
+●
+节点宕机
+
+●
+节点被关机
+
+●
+网络不通
+
+1.7） Token验证问题，添加节点Token过期
+
+2、网络排错
+
+2.1) Pod服务连接超时
+
+故障1： Pod内部ping不通www.baidu.com
+
+故障2： k8s中的微服务出现连接集群之外的数据库服务超时
+
+2.2）Pod应用数据包丢失
+
+2.3）Pod之间通信故障
+
+故障1： CoreDNS经常重启或报错
+
+故障2： pod之间无法跨物理节点访问
+
+2.4）K8S集群内部域名解析故障
+
+故障2： Pod 与 DNS 服务之间网络不通
+
+3、集群排错
+
+3.1) 集群节点NotReady
+
+3.2）pod调度失败故障排查
+
+3.3）节点资源不足
+
+4、经典排错
+
+5、其它排错
+
+6、踩坑总结
+
+十七： kubernetes集群优化
+
+1）节点配额和内核参数调整
+
+资源配额问题，需要提前在云平台上最大配额，包括
+
+内核参数优化
+
+二、Etcd 数据库
+
+●
+使用etcd operator来搭建etcd 集群 (高可用集群）
+
+●
+配置etcd使用ssd固态盘存储
+
+●
+设置 —quota-backend-bytes 增大etcd的存储限制。默认值是 2G
+
+●
+需要配置单独的 Etcd 集群存储 kube-apiserver 的 event
+
+三、优化kube-apiserver的配置
+
+●
+node节点数量 >= 3000， 推荐设置如下配置：
+
+--max-requests-inflight=3000
+
+--max-mutating-requests-inflight=1000
+
+●
+node节点数量在 1000 — 3000， 推荐设置如下配置：
+
+--max-requests-inflight=1500-
+
+-max-mutating-requests-inflight=500
+
+四、Pod配置
+
+●
+为容器设置资源请求和限制，尤其是一些基础插件服务
+
+在k8s中，会根据pod不同的limit 和 requests的配置将pod划分为不同的qos类别：
+
+Guaranteed
+
+Burstable
+
+BestEffort
+
+●
+对关键应用使用 nodeAffinity、podAffinity 和 podAntiAffinity 等保护，使其调度分散到不同的node上
+
+●
+尽量使用控制器来管理容器（如 Deployment、StatefulSet、DaemonSet、Job 等）
+
+Kube-scheduler 配置
+
+​
+
+1 like
+
+- 
+1
+

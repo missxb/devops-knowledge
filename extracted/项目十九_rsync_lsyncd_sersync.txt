@@ -1,0 +1,213 @@
+
+
+项目十九：rsync/lsyncd/sersync
+
+## 
+项目十九：rsync/lsyncd/sersync
+
+Back to document
+1)rsync配置文件
+
+​
+Shell
+Run Code
+Copy
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+uid
+=
+rsync
+#
+gid
+=
+rsync
+port
+=
+
+873
+fake super
+=
+
+yes
+
+use
+chroot
+
+=
+no
+#使用锁定用户到家目录
+max connections
+=
+
+200
+
+#可以放到模块
+timeout
+=
+
+300
+
+#指定空闲超时时间
+pid file
+=
+/var/run/rsyncd.pid
+#指定rsync进程的pid文件
+lock file
+=
+/var/run/rsync.lock
+#指定rsync进程的锁文件
+log file
+=
+/var/log/rsyncd.log
+#指定rsync
+ignore errors
+#忽略错误
+read only
+=
+
+false
+
+#不只读
+list
+=
+
+false
+
+#不显示目录下的文件
+hosts allow
+=
+
+172
+.16.1.0/24
+#运行访问的网段
+auth users
+=
+rsync_backup
+secrets file
+=
+/etc/rsync.password
+[backup]
+comment
+=
+
+"backup dir by oldboy"
+path
+=
+/backup
+#模块对应的路径
+
+2）创建虚拟用户rsync
+
+​
+Shell
+Run Code
+Copy
+9
+1
+2
+id rsync
+#查看以下是否有rsync这个用户
+useradd rsync
+-M
+
+-s
+/sbin/nologin
+#创建rsync虚拟用户
+3)创建密码文件并修改访问权限为600
+
+​
+Shell
+Run Code
+Copy
+9
+1
+2
+echo
+
+"rsync_backup:123456"
+>/etc/rsync.password
+chmod
+
+600
+/etc/rsync.password
+#只能root用户才能查看密码
+4)创建备份目录及修改权限
+
+​
+Shell
+Run Code
+Copy
+9
+1
+2
+mkdir
+/backup
+chown
+rsync.rsync /backup
+5）启动服务
+
+​
+Shell
+Run Code
+Copy
+9
+1
+2
+3
+4
+[root@master02 tmp]
+# systemctl enable rsyncd
+Created symlink from /etc/systemd/system/multi-user.target.wants/rsyncd.service to /usr/lib/systemd/system/rsyncd.service.
+[root@master02 tmp]
+# systemctl start rsyncd
+
+6）配置客户端
+
+​
+9
+1
+2
+3
+4
+echo
+
+"123456"
+>/etc/rsync.password
+#创建密码文件
+chmod
+
+600
+/etc/rsync.password
+
+rsync
+-avz
+/etc/passwd rsync_backup@192.168.10.91::backup
+--password-file
+=
+/etc/rsync.password
+​
+
+1 like
+
+- 
+1
+

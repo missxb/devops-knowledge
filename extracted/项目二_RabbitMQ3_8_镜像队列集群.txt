@@ -1,0 +1,659 @@
+
+
+项目二：RabbitMQ3.8 镜像队列集群
+
+## 
+项目二：RabbitMQ3.8 镜像队列集群
+
+Back to document
+第一种方式： 通过部署在物理机上
+
+一、基础配置
+
+1）主机名配置
+
+​
+Shell
+Run Code
+Copy
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+hostnamectl set-hostname mq01
+hostnamectl set-hostname mq02
+hostnamectl set-hostname mq03
+
+[root@mq01 ~]
+# cat /etc/hosts
+127
+.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+
+192
+.168.10.220 mq01
+192
+.168.10.221 mq02
+192
+.168.10.222 mq03
+
+2) 关闭防火墙
+
+​
+Shell
+Run Code
+Copy
+9
+1
+2
+3
+4
+systemctl disable firewalld
+systemctl
+stop
+firewalld
+
+setenforce
+0
+二）安装单节点rabbitmq3.8
+
+1）安装依赖
+
+​
+Shell
+Run Code
+Copy
+9
+1
+yum install socat
+-y
+2) 安装Erlang
+
+​
+Shell
+Run Code
+Copy
+9
+1
+2
+wget
+https://github.com/rabbitmq/erlang-rpm/releases/download/v23.0.2/erlang-23.0.2-1.el7.x86_64.rpm
+rpm
+-ivh
+erlang-23.0.2-1.el7.x86_64.rpm
+3) 安装rabbitmq3.8.5
+
+​
+Shell
+Run Code
+Copy
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+wget
+https://github.com/rabbitmq/rabbitmq-server/releases/download/v3.8.5/rabbitmq-server-3.8.5-1.el7.noarch.rpm
+rpm
+-ivh
+rabbitmq-server-3.8.5-1.el7.noarch.rpm
+
+#启用RabbitMQ的管理插件
+rabbitmq-plugins enable rabbitmq_management
+
+#启动
+[root@mq01 ~]
+# systemctl enable rabbitmq-server
+Created symlink from /etc/systemd/system/multi-user.target.wants/rabbitmq-server.service to /usr/lib/systemd/system/rabbitmq-server.service.
+[root@mq01 ~]
+# systemctl restart rabbitmq-server
+[root@mq01 ~]
+# ss -tunlp|grep 5672
+tcp    LISTEN
+0
+
+1024
+*:15672                 *:*                   users:((
+"beam.smp"
+,pid
+=
+21191
+,fd
+=
+97
+))
+tcp    LISTEN
+0
+
+128
+*:25672                 *:*                   users:((
+"beam.smp"
+,pid
+=
+21191
+,fd
+=
+83
+))
+tcp    LISTEN
+0
+
+128
+[::]:5672               [::]:*                   users:((
+"beam.smp"
+,pid
+=
+21191
+,fd
+=
+96
+))
+
+#创建用户
+rabbitmqctl add_user root
+123456
+
+rabbitmqctl set_user_tags root administrator
+
+rabbitmqctl set_permissions root
+-p
+/
+".*"
+
+".*"
+
+".*"
+
+三）配置rabbitmq镜像队列集群
+
+1)
+从mq1拷贝.erlang.cookie到mq2、mq3的相应目录（元数据共享）
+
+​
+9
+1
+2
+3
+4
+5
+6
+7
+8
+9
+cd
+/var/lib/rabbitmq
+scp .erlang.cookie root@mq02:/var/lib/rabbitmq/
+scp .erlang.cookie root@mq03:/var/lib/rabbitmq/
+
+#修改mq2和mq3上该文件的所有者为：rabbitmq:rabbitmq
+chown
+rabbitmq.rabbitmq /var/lib/rabbitmq/.erlang.cookie
+
+#使用下述命令启动mq2和mq3上的RabbitMQ
+systemctl
+start
+rabbitmq-server
+2)将mq2和mq3这两个节点加入到集群中
+
+​
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+#以mq1节点为集群，查看集群状态：此时运行节点只有mq1节点
+[root@mq01 rabbitmq]
+# rabbitmqctl cluster_status
+Cluster status of
+node
+rabbit@mq01 ...
+Basics
+
+Cluster name: rabbit@mq01
+
+Disk Nodes
+
+rabbit@mq01
+
+Running Nodes
+
+rabbit@mq01
+
+Versions
+
+rabbit@mq01: RabbitMQ
+3
+.8.5 on Erlang
+23
+.0.2
+
+Alarms
+
+(none)
+
+Network Partitions
+
+(none)
+
+Listeners
+
+Node: rabbit@mq01, interface: [::], port:
+25672
+, protocol: clustering, purpose: inter-node and CLI tool communication
+Node: rabbit@mq01, interface: [::], port:
+5672
+, protocol: amqp, purpose: AMQP
+0
+-9-1
+and AMQP
+1
+.0
+Node: rabbit@mq01, interface: [::], port:
+15672
+, protocol: http, purpose: HTTP API
+
+Feature flags
+
+Flag: drop_unroutable_metric, state: disabled
+四）rabbitMQ监控
+
+1）集群状态监控
+
+​
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+#!/bin/env python
+#coding:utf-8
+
+import
+
+subprocess
+
+running_list
+=
+[
+]
+error_list
+
+=
+
+[
+]
+false
+
+=
+
+"false"
+true
+
+=
+
+"true"
+
+def
+
+get_status
+(
+)
+:
+
+obj
+
+=
+
+subprocess
+.
+Popen
+(
+"curl -s -u root:123456 http://localhost:15672/api/nodes &>/dev/null"
+)
+,
+shell
+=
+True
+,
+stdout
+=
+subprocess
+.
+PIPE
+)
+
+data
+
+=
+
+obj
+.
+stdout
+.
+read
+(
+)
+
+data1
+
+=
+
+eval
+(
+data
+)
+
+for
+
+i
+
+in
+
+data1
+:
+
+if
+
+i
+.
+get
+(
+"running"
+)
+==
+"true"
+:
+
+running_list
+.
+append
+(
+i
+.
+get
+(
+"name"
+)
+)
+
+else
+:
+
+error_list
+.
+append
+(
+i
+.
+get
+(
+"name"
+)
+)
+
+def
+
+count_server
+(
+)
+:
+
+if
+
+len
+(
+running_list
+)
+
+<
+
+3
+:
+
+print
+(
+101
+)
+
+else
+:
+
+print
+(
+50
+)
+
+def
+
+main
+(
+)
+:
+
+get_status
+(
+)
+
+count_server
+(
+)
+
+if
+
+__name__
+=
+"__main__"
+:
+
+main
+(
+)
+
+2)内存使用监控
+
+​
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+#!/bin/env python
+#coding:utf-8
+
+import subprocess
+import sys
+
+running_list
+=
+[]
+error_list
+=
+[]
+false
+
+=
+
+"false"
+true
+
+=
+
+"true"
+
+def get_status():
+obj
+=
+subprocess.Popen(
+"curl -s -u root:123456 http://localhost:15672/api/nodes &>/dev/null"
+)
+,shell
+=
+True
+,stdout
+=
+subprocess.PIPE)
+
+data
+=
+obj.stdout.read()
+
+data1
+=
+eval(data)
+
+for
+i
+in
+data1:
+
+if
+i.get(
+"name"
+)
+==
+sys.argv[1]:
+print(i.get(
+"mem_used"
+))
+
+def main():
+get_status()
+
+if
+__name__
+=
+
+"__main__"
+:
+main()
+
+#执行python3 rabbitmq-monitor.py rabbit@mq01
+3）通过prometheus+grafana监控rabbitmq服务
+
+五）消息可靠性投递
+
+幂等性
+
+第二种方式： 通过Docker运行
+
+​
+
+If you get gains，please give a like
+

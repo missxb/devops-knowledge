@@ -1,0 +1,336 @@
+
+
+项目十七：glusterfs 存储
+
+## 
+项目十七：glusterfs 存储
+
+Back to document
+一、glusterfs安装部署
+
+1) 基础配置及安装glusterfs
+
+​
+Shell
+Run Code
+Copy
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+1
+)修改主机名
+hostnamectl set-hostname node01
+
+192
+.168.10.90  node01
+192
+.168.10.91  node02
+192
+.168.10.92  node03
+
+2
+）关闭防火墙
+systemctl
+stop
+firewalld
+systemctl disable firewalld
+
+setenforce
+0
+
+3
+) 时钟同步
+ntpdate time.nist.gov
+
+4
+)准备glusterfs仓库
+yum install centos-release-gluster
+-y
+
+5
+）安装依赖软件包
+yum install rpcbind libaio lvm2-devel
+-y
+
+或者下载地址： https://download.gluster.org/pub/gluster/glusterfs/old-releases/3.7/3.7.4/
+
+6
+）服务端
+yum
+-y
+install   glusterfs-server glusterfs glusterfs-cli   glusterfs-fuse  glusterfs-libs glusterfs-api
+
+7
+）客户端
+yum
+-y
+install    glusterfs    glusterfs-fuse  glusterfs-libs
+2）格式化磁盘并挂载，设置开机自启动
+
+​
+Shell
+Run Code
+Copy
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+[root@node01 ~]
+# mkdir /brick1
+You have new mail
+in
+/var/spool/mail/root
+[root@node01 ~]
+# mkdir /brick2
+
+[root@node01 ~]
+# fdisk /dev/sdc
+[root@node01 ~]
+# mkfs.xfs /dev/sdc1
+
+[root@node01 ~]
+# cat /etc/fstab
+
+#
+# /etc/fstab
+# Created by anaconda on Wed Nov  4 21:42:37 2020
+#
+# Accessible filesystems, by reference, are maintained under '/dev/disk'
+# See man pages fstab(5), findfs(8), mount(8) and/or blkid(8) for more info
+#
+UUID
+=
+1b9c42cf-94ac-4040-a42a-0864d4913d3c /                       xfs     defaults
+0
+
+0
+#UUID=ed19f040-4648-41a2-8e86-85d8d3b9d987 swap                    swap    defaults        0 0
+/dev/sdb1      /data   xfs   defaults
+0
+
+0
+
+UUID
+=
+"0eb33776-c565-4d53-a0a1-7a3e1904536a"
+/brick1  xfs   defaults
+0
+
+0
+
+UUID
+=
+"e49c15a0-348f-41da-b906-053f2860ae25"
+/brick2  xfs   defaults
+0
+
+0
+
+3)创建集群
+
+​
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+#启动服务
+[root@node02 ~]
+# systemctl enable glusterd
+Created symlink from /etc/systemd/system/multi-user.target.wants/glusterfsd.service to /usr/lib/systemd/system/glusterfsd.service.
+[root@node02 ~]
+# systemctl start glusterd
+[root@node02 ~]
+# systemctl status glusterd
+● glusterfsd.service
+-
+GlusterFS brick processes (stopping only)
+Loaded: loaded (/usr/lib/systemd/system/glusterfsd.service; enabled; vendor preset: disabled)
+Active: active (exited) since Tue
+2021
+-09-07
+
+21
+:22:16 CST; 5s ago
+Process:
+1650
+
+ExecStart
+=
+/bin/true
+(code
+=
+exited,
+status
+=
+0
+/SUCCESS)
+Main PID:
+1650
+
+(code
+=
+exited,
+status
+=
+0
+/SUCCESS)
+
+Sep
+07
+
+21
+:22:16 node02 systemd[1]: Starting GlusterFS brick processes (stopping only)...
+Sep
+07
+
+21
+:22:16 node02 systemd[1]: Started GlusterFS brick processes (stopping only).
+
+日志文件
+[root@node02 ~]
+# cd /var/log/glusterfs/
+[root@node02 glusterfs]
+# ls
+bricks  cmd_history.log  glusterd.log
+
+[root@node01 glusterfs]
+# gluster peer probe node02
+peer probe: success
+[root@node01 glusterfs]
+# gluster peer probe node03
+peer probe: success
+
+注意：
+
+如果想从集群中去除节点，可以执行如下命令，但该节点中不能存在卷中正在使用的brick。
+
+gluster peer detach 节点名称
+
+#查看集群状态
+
+[root@node01 glusterfs]
+# gluster peer probe node03
+peer probe: success
+4）常用分布式简介
+
+●
+分布式卷
+
+应用场景：大量小文件
+
+优点：读/写性能好
+
+缺点：如果存储或服务器故障，该brick上的数据将丢失
+
+不指定卷类型，默认是分布式卷
+
+​
+9
+1
+2
+3
+4
+5
+6
+[root@node01 brick1]
+# gluster volume create testvol node01:/brick1/br1 node02:/brick1/br1
+volume create: testvol: success: please
+start
+the volume to access data
+
+[root@node01 brick1]
+# gluster volume list
+testvol
+
+复本卷在创建时可指定复本的数量，复本在存储时会在卷的不同brick上，因此有几个复本就必须提供至少多个brick
+
+``
+
+4) 硬盘故障
+
+​
+
+If you get gains，please give a like
+

@@ -1,0 +1,666 @@
+
+
+项目十九：LB+keepalived
+
+## 
+项目十九：LB+keepalived
+
+Back to document
+
+1、安装keepalived
+
+​
+Shell
+Run Code
+Copy
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+#!/bin/bash
+#DATA 2019.05.07
+#this is install keepalived shell
+
+Version
+=
+"2.0.17"
+
+echo
+
+-e
+
+"\e[1;32m =================安装基础环境============== \e[0m "
+
+yum install
+-y
+
+gcc
+openssl-devel popt-devel libnl-devel kernel-devel
+
+echo
+
+-e
+
+"\e[1;32m =================下载文件============== \e[0m "
+
+mkdir
+
+-p
+/opt/software &&
+cd
+/opt/software
+
+wget
+
+-c
+https://www.keepalived.org/software/keepalived-
+${Version}
+.tar.gz
+
+tar zxvf keepalived-
+${Version}
+.tar.gz &&
+cd
+keepalived-
+${Version}
+
+echo
+
+-e
+
+"\e[1;32m =================编译安装============== \e[0m "
+./configure
+--prefix
+=
+/usr/local/keepalived &&
+make
+&&
+make
+install
+
+echo
+
+-e
+
+"\e[1;32m =================拷贝默认文件============== \e[0m "
+
+mkdir
+
+-p
+/etc/keepalived
+cp
+/usr/local/keepalived/etc/keepalived/keepalived.conf /etc/keepalived/
+
+2、安装haproxy
+
+​
+Shell
+Run Code
+Copy
+999
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+#!/bin/bash
+#DATA 2019.05.07
+#this is install haproxy shell
+#由于CentOS7 之前版本自带的lua版本比较低并不符合HAProxy要求的lua最低版本(5.3)的要求，因此需要编译安装较新版本的lua环境，然后才能编译安装HAProxy
+
+echo
+
+-e
+
+"\e[1;32m =================安装lua环境============== \e[0m "
+
+yum
+-y
+install
+gcc
+readline-devel
+
+cd
+/usr/local/src &&
+wget
+http://www.lua.org/ftp/lua-5.3.5.tar.gz
+tar xf lua-5.3.5.tar.gz
+cd
+lua-5.3.5
+make
+linux test
+
+echo
+
+-e
+
+"\e[1;32m =================安装基础软件及下载haproxy软件============== \e[0m "
+
+yum
+-y
+install
+gcc
+openssl-devel pcre-devel systemd-devel
+
+cd
+/usr/local/src &&
+wget
+http://download.51yuki.cn/haproxy-2.0.21.tar.gz
+
+echo
+
+-e
+
+"\e[1;32m =================安装haproxy软件============== \e[0m "
+
+tar xf haproxy-2.0.21.tar.gz &&
+cd
+haproxy-2.0.21
+make
+
+ARCH
+=
+x86_64
+TARGET
+=
+linux-glibc
+USE_PCRE
+=
+1
+
+USE_OPENSSL
+=
+1
+
+USE_ZLIB
+=
+1
+
+USE_SYSTEMD
+=
+1
+
+USE_LUA
+=
+1
+
+LUA_INC
+=
+/usr/local/src/lua-5.3.5/src/
+LUA_LIB
+=
+/usr/local/src/lua-5.3.5/src/
+make
+install
+PREFIX
+=
+/usr/local/haproxy
+ln
+
+-s
+/usr/local/haproxy/sbin/haproxy /usr/sbin/
+
+echo
+
+-e
+
+"\e[1;32m =================配置haproxy启动文件============== \e[0m "
+
+cat
+> /usr/lib/systemd/system/haproxy.service
+<<-EOF
+[Unit]
+Description=HAProxy Load Balancer
+After=syslog.target network.target
+
+[Service]
+ExecStartPre=/usr/sbin/haproxy -f /etc/haproxy/haproxy.cfg  -c -q
+3、keepalived配置文件
+
+​
+9
+1
+2
+3
+4
+5
+6
+7
+[root@node03 ~]
+# cat /etc/keepalived/chk_server.sh
+#!/bin/bash
+##端口检测
+counter
+=
+$(netstat -na|grep
+"LISTEN"
+|grep
+"80"
+|wc -l)
+if
+[
+"
+${counter}
+"
+
+-eq
+
+0
+];
+then
+systemctl
+stop
+keepalived
+fi
+​
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+#在linux上配置mailx
+yum
+-y
+install mailx
+
+[root@node03 ~]
+# vim /etc/mail.rc
+
+#末尾添加
+set
+
+from
+=
+xhh_198605@163.com
+set
+
+smtp
+=
+smtp.163.com
+set
+
+smtp-auth-user
+=
+xhh_198605@163.com
+set
+
+smtp-auth-password
+=
+WVQYBJKWEIASDIAP
+
+#测试发送邮件
+echo
+
+"test keepalived"
+| mail
+-s
+keepalived
+851628816
+@qq.com
+
+​
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+! Configuration File
+for
+keepalived
+
+global_defs {
+notification_email {
+xhh_198605@163.com
+
+851628816
+@qq.com
+}
+notification_email_from Alexandre.Cassen@firewall.loc
+smtp_server
+192
+.168.10.92
+smtp_connect_timeout
+30
+router_id node03
+#当前主机名
+vrrp_skip_check_adv_addr
+
+#vrrp_strict
+vrrp_garp_interval
+0
+vrrp_gna_interval
+0
+}
+
+vrrp_script chk_server_port {
+script
+"/etc/keepalived/chk_server.sh"
+interval
+2
+
+#脚本执行间隔，每2s检测一次
+weight
+-5
+
+#脚本结果导致的优先级变更，检测失败（脚本返回非0）则优先级 -5
+fall
+2
+
+#检测连续2次失败才算确定是真失败。会用weight减少优先级（1-255之间）
+rise
+1
+
+#检测1次成功就算成功。但不修改优先级
+}
+
+vrrp_instance VI_1 {
+state MASTER
+#master服务端主机
+interface ens33
+#指定虚拟ip的网卡接口，即master的其中一个网卡名
+mcast_src_ip
+192
+.168.10.92
+#master服务端主机的IP地址
+virtual_router_id
+52
+
+#路由器标识，MASTER和BACKUP必须是一致的
+priority
+100
+
+#定义优先级，数字越大，优先级越高，在同一个vrrp_instance下，MASTER的优先级必须大于BACKUP的优先级。这样MASTER故障恢复后，就可以将VIP资源再次抢回来
+advert_int
+1
+authentication {
+#添加免密安全认证
+auth_type PASS
+auth_pass
+1111
+}
+​
+999
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+下面的脚本可以接受选项，其中：
+
+-s
+,
+--service
+SERVICE,...：指定服务脚本名称，当状态切换时可自动启动、重启或关闭此服务；
+
+-a
+,
+--address
+VIP: 指定相关虚拟路由器的VIP地址；
+
+-m
+,
+--mode
+{mm|mb}：指定虚拟路由的模型，mm表示主主，mb表示主备；它们表示相对于同一种服务而方，其VIP的工作类型；
+
+-n
+,
+--notify
+{master|backup|fault}：指定通知的类型，即vrrp角色切换的目标角色；
+
+-h
+,
+--help
+：获取脚本的使用帮助；
+
+vim
+/etc/keepalived/notify.sh
+#!/bin/bash
+
+# description: An example of notify script
+# Usage: notify.sh -m|--mode {mm|mb} -s|--service SERVICE1,... -a|--address VIP  -n|--notify {master|backup|falut} -h|--help
+
+helpflag
+=
+0
+serviceflag
+=
+0
+modeflag
+=
+0
+addressflag
+=
+0
+notifyflag
+=
+0
+
+contact
+=
+'851628816@qq.com'
+
+Usage() {
+
+echo
+
+"Usage: notify.sh [-m|--mode {mm|mb}] [-s|--service SERVICE1,...] <-a|--address VIP>  <-n|--notify {master|backup|falut}>"
+
+echo
+
+"Usage: notify.sh -h|--help"
+}
+
+ParseOptions() {
+local
+I
+=
+1
+;
+​
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+[root@node03 ~]
+# ip addr
+1
+: lo: <LOOPBACK,UP,LOWER_UP> mtu
+65536
+qdisc noqueue state UNKNOWN group default qlen
+1000
+link/loopback
+00
+:00:00:00:00:00 brd
+00
+:00:00:00:00:00
+inet
+127
+.0.0.1/8 scope host lo
+valid_lft forever preferred_lft forever
+inet6 ::1/128 scope host
+valid_lft forever preferred_lft forever
+2
+: ens33: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu
+1500
+qdisc pfifo_fast state UP group default qlen
+1000
+link/ether
+00
+:0c:29:91:92:af brd ff:ff:ff:ff:ff:ff
+inet
+192
+.168.10.92/24 brd
+192
+.168.10.255 scope global ens33
+valid_lft forever preferred_lft forever
+inet
+192
+.168.10.200/32 scope global ens33:0
+valid_lft forever preferred_lft forever
+inet6 fe80::20c:29ff:fe91:92af/64 scope link
+valid_lft forever preferred_lft forever
+3
+: tunl0@NONE: <NOARP> mtu
+1480
+qdisc noop state DOWN group default qlen
+1000
+link/ipip
+0
+.0.0.0 brd
+0
+.0.0.0
+[root@node03 ~]
+#
+
+访问
+http://192.168.10.200:9999/haproxy-status
+
+​
+
+If you get gains，please give a like
+

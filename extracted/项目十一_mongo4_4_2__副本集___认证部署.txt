@@ -1,0 +1,456 @@
+
+
+项目十一：mongo4.4.2+ 副本集 + 认证部署
+
+## 
+项目十一：mongo4.4.2+ 副本集 + 认证部署
+
+Back to document
+一、环境介绍
+
+版本： MongoDB4.4.2
+
+端口： 27017
+
+服务器：
+
+192.168.10.113     mongodb01
+
+192.168.10.112     mongodb02
+
+192.168.10.111    mongodb03
+
+相关路径：
+
+部署目录： /data/mongodb/app/mongodb-4.4.2
+
+数据目录： /data/mongodb/data
+
+日志目录： /data/mongodb/logs
+
+二、MongoDB副本集部署
+
+1）安装MongoDB （三节点）
+
+​
+Shell
+Run Code
+Copy
+9
+1
+2
+3
+4
+5
+6
+yum
+-y
+install
+wget
+
+vim
+lrzsz
+mkdir
+/data/mongodb/{app,data,logs}
+cd
+/data/mongodb/app
+wget
+https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel70-4.4.2.tgz
+tar zxf mongodb-linux-x86_64-rhel70-4.4.2.tg
+mv
+mongodb-linux-x86_64-rhel70-4.4.2 mongodb-4.4.2
+
+2) MongoDB配置 （三个节点）
+
+​
+Shell
+Run Code
+Copy
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+cd
+/data/mongodb/app/mongodb-4.4.2/
+mkdir
+conf
+cat
+>conf/mongodb.conf
+<<-EOF
+storage:
+dbPath: /data/mongodb/data
+journal:
+enabled: true
+systemLog:
+destination: file
+logAppend: true
+path: /data/mongodb/logs/mongod.log
+processManagement:
+fork: true
+pidFilePath: /data/mongodb/logs/mongod.pid
+
+net:
+port: 27017
+bindIp: 0.0.0.0
+
+replication:
+replSetName: "testrs0"
+
+EOF
+
+其他2个节点类似，把bindIP地址更改掉
+3）启动各节点（三节点）
+
+​
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+#设置权限
+useradd
+-s
+/bin/false mongo
+chown
+
+-R
+mongo.mongo /data/mongodb/
+
+cat
+>/usr/lib/systemd/system/mongodb.service
+<<-EOF
+[Unit]
+
+Description=mongodb
+After=network.target remote-fs.target nss-lookup.target
+
+[Service]
+Type=forking
+User=mongo
+Group=mongo
+ExecStart=/data/mongodb/app/mongodb-4.4.2/bin/mongod --config  /data/mongodb/app/mongodb-4.4.2/conf/mongodb.conf
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/data/mongodb/app/mongodb-4.4.2/bin/mongod --shutdown --config  /data/mongodb/app/mongodb-4.4.2/conf/mongodb.conf
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+
+EOF
+
+#启动mongodb服务
+systemctl daemon-reload
+systemctl enable mongodb.service
+systemctl start mongodb.service
+
+[root@mongodb01 conf]# ss -tunlp|grep 27017
+tcp    LISTEN     0      128    192.168.10.113:27017                 *:*                   users:(("mongod",pid=1654,fd=12))
+
+4) 初始化mongodb副本集（在mongodb01节点）
+
+​
+999
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+echo
+
+"export PATH=/data/mongodb/app/mongodb-4.4.2/bin:
+$PATH
+"
+>> /etc/profile
+source
+/etc/profile
+
+mongo
+
+>> use admin
+>> rs.initiate( {
+...   _id:
+"testrs0"
+,
+...   members: [
+...   { _id:
+0
+, host:
+"192.168.10.113:27017"
+},
+...   { _id:
+1
+, host:
+"192.168.10.112:27017"
+},
+...   { _id:
+2
+, host:
+"192.168.10.111:27017"
+}
+...   ] })
+{
+
+"ok"
+:
+1
+,
+
+"
+$clusterTime
+"
+: {
+
+"clusterTime"
+: Timestamp(1623405202,
+1
+),
+
+"signature"
+: {
+
+"hash"
+: BinData(0,
+"AAAAAAAAAAAAAAAAAAAAAAAAAAA="
+),
+
+"keyId"
+: NumberLong(0)
+}
+},
+
+"operationTime"
+: Timestamp(1623405202,
+1
+)
+}
+
+testrs0:PRIMARY> rs.status()
+{
+
+"set"
+:
+"testrs0"
+,
+
+"date"
+: ISODate(
+"2021-06-11T09:54:37.325Z"
+),
+
+"myState"
+:
+1
+,
+
+"term"
+: NumberLong(1),
+
+"syncSourceHost"
+:
+""
+,
+
+"syncSourceId"
+:
+-1
+,
+
+"heartbeatIntervalMillis"
+: NumberLong(2000),
+5) 修改认证模式
+
+​
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+testrs0:PRIMARY> db.createUser({user:
+"root"
+, pwd:
+"Root#123"
+, roles: [{role:
+"root"
+, db:
+"admin"
+}]})
+Successfully added user: {
+
+"user"
+:
+"root"
+,
+
+"roles"
+: [
+{
+
+"role"
+:
+"root"
+,
+
+"db"
+:
+"admin"
+}
+]
+}
+
+#在主库上执行脚本生成key文件，然后将结拷贝到另外2个节点
+
+cd
+/data/mongodb/app/mongodb-4.4.2/  &&
+mkdir
+keyfile
+#三节点都要创建
+
+[root@mongodb01 mongodb-4.4.2]
+# openssl rand -base64 756 >keyfile/mongo.key
+[root@mongodb01 mongodb-4.4.2]
+# chmod 400 keyfile/mongo.key
+[root@mongodb01 mongodb-4.4.2]
+# scp keyfile/mongo.key root@192.168.10.112:/data/mongodb/app/mongodb-4.4.2/keyfile/
+root@192.168.10.112
+'s password:
+mongo.key                                                                                                                                        100% 1024   296.2KB/s   00:00
+[root@mongodb02 mongodb-4.4.2]# scp keyfile/mongo.key root@192.168.10.111:/data/mongodb/app/mongodb-4.4.2/keyfile/
+The authenticity of host '
+192
+.168.10.111 (192.168.10.111)
+' can'
+t be established.
+root@192.168.10.111
+'s password:
+mongo.key                                                                                                                                        100% 1024   481.6KB/s   00:00
+[root@mongodb02 mongodb-4.4.2]#
+
+#修改权限及属组 （因为程序是mongo用户启动）
+
+chown -R mongo.mongo /data/mongodb/   #三个节点都操作
+
+[root@mongodb01 keyfile]# ls -lh mongo.key
+-r--------. 1 root root 1.0K Jun 11 18:04 mongo.key
+
+#修改配置文件
+security:
+
+​
+
+If you get gains，please give a like
+

@@ -1,0 +1,418 @@
+
+
+项目三：Kafka 集群部署及监控
+
+## 
+项目三：Kafka 集群部署及监控
+
+Back to document
+一、zookeeper集群及监控
+
+1、安装部署集群
+
+1）安装jdk
+
+​
+Shell
+Run Code
+Copy
+9
+1
+2
+3
+4
+cd
+/usr/local/src
+wget
+http://download.51yuki.cn/jdk-8u181-linux-x64.rpm
+
+rpm
+-ivh
+jdk-8u181-linux-x64.rpm
+2) 安装zookeeper
+
+官网下载地址：
+https://mirrors.bfsu.edu.cn/apache/zookeeper/zookeeper-3.7.0/
+
+​
+Shell
+Run Code
+Copy
+9
+1
+2
+3
+4
+5
+cd
+/usr/local/src
+wget
+https://mirrors.bfsu.edu.cn/apache/zookeeper/zookeeper-3.7.0/apache-zookeeper-3.7.0-bin.tar.gz
+tar xf apache-zookeeper-3.7.0-bin.tar.gz
+-C
+/usr/local/
+cd
+/usr/local/apache-zookeeper-3.7.0-bin/
+cp
+zoo_sample.cfg zoo.cfg
+3）配置zookeeper集群
+
+​
+Shell
+Run Code
+Copy
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+#然后通过 vim zoo.cfg 命令对该文件进行修改
+#zookeeper服务器之间或客户端与服务器之间维持心跳的时间间隔，每隔tickTime时间就会发送一个心跳
+tickTime
+=
+2000
+#允许follower连接并同步到Leader的初始化连接时间，以tickTime为单位。当初始化连接时间超过该值，则表示连接失败
+initLimit
+=
+10
+#表示Leader与Follower之间发送消息时，请求和应答时间长度。如果follower在设置时间内不能与leader通信，那么此follower将会被丢弃
+syncLimit
+=
+5
+#存储内存中数据库快照的位置
+dataDir
+=
+/data/zookeeper
+#客户端端口
+clientPort
+=
+2181
+# the maximum number of client connections.
+# increase this if you need to handle more clients
+#maxClientCnxns=60
+#
+# Be sure to read the maintenance section of the
+# administrator guide before turning on autopurge.
+#
+# http://zookeeper.apache.org/doc/current/zookeeperAdmin.html#sc_maintenance
+#
+# The number of snapshots to retain in dataDir
+#autopurge.snapRetainCount=3
+# Purge task interval in hours
+# Set to "0" to disable auto purge feature
+#autopurge.purgeInterval=1
+
+## Metrics Providers
+#
+# https://prometheus.io Metrics Exporter
+#metricsProvider.className=org.apache.zookeeper.metrics.prometheus.PrometheusMetricsProvider
+#metricsProvider.httpPort=7000
+#metricsProvider.exportJvmInfo=true
+
+# server.A=B:C:D 配置，其中 A 对应下面我们即将介绍的myid 文件。B是集群的各个IP地址，C:D 是端口配置
+server
+.0
+=
+192
+.168.10.220:2888:3888
+server
+.1
+=
+192
+.168.10.221:2888:3888
+​
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+创建 myid 文件(在 上一步 dataDir 指定的目录下，创建 myid 文件。)
+mkdir
+
+-p
+/data/zookeeper
+cd
+/data/zookeeper
+
+[root@mq01 zookeeper]
+# cat myid
+0
+
+[root@mq02 zookeeper]
+# cat myid
+1
+
+[root@mq03 zookeeper]
+# cat myid
+2
+
+#环境变量
+export
+
+ZK_HOME
+=
+/usr/local/apache-zookeeper-3.7.0
+export
+
+PATH
+=
+$PATH
+:
+$ZK_HOME
+/bin
+
+#启动zookeeper服务
+
+zkServer.sh
+start
+停止命令：
+zkServer.sh
+stop
+重启命令：
+zkServer.sh
+restart
+查看集群节点状态：
+
+zkServer.sh status
+​
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+[root@mq01 ~]
+# zkServer.sh status
+/usr/bin/java
+ZooKeeper JMX enabled by default
+Using config: /usr/local/apache-zookeeper-3.7.0-bin/bin/../conf/zoo.cfg
+Client port found:
+2181
+. Client address: localhost. Client SSL:
+false
+.
+Mode: follower
+
+[root@mq02 ~]
+# zkServer.sh status
+/usr/bin/java
+ZooKeeper JMX enabled by default
+Using config: /usr/local/apache-zookeeper-3.7.0-bin/bin/../conf/zoo.cfg
+Client port found:
+2181
+. Client address: localhost. Client SSL:
+false
+.
+Mode: follower
+
+[root@mq03 ~]
+# zkServer.sh status
+/usr/bin/java
+ZooKeeper JMX enabled by default
+Using config: /usr/local/apache-zookeeper-3.7.0-bin/bin/../conf/zoo.cfg
+Client port found:
+2181
+. Client address: localhost. Client SSL:
+false
+.
+Mode: leader
+
+2、prometheus+grafana监控zookeeper集群
+
+​
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+下载比较新版本的zookeeper，需要是3.6.0以后的版本，因为在这个版本后zookeeper自身加入了支持Prometheus的监控，比较方便，之前的版本的或许只能使用JMX进行监控了
+
+/usr/local/apache-zookeeper-3.7.0-bin/conf/zoo.cfg
+
+#monitor
+
+metricsProvider
+.className
+=
+org.apache.zookeeper.metrics.prometheus.PrometheusMetricsProvider
+metricsProvider
+.httpPort
+=
+7000
+metricsProvider
+.exportJvmInfo
+=
+true
+
+#查看
+http://192.168.10.220:7000/metrics
+​
+9
+1
+2
+3
+4
+5
+6
+7
+8
+9
+
+-
+job_name:
+'zookeeper_monitor'
+scrape_interval: 60s
+scrape_timeout: 60s
+static_configs:
+
+-
+targets:
+
+-
+
+192
+.168.10.220:7000
+
+-
+
+192
+.168.10.221:7000
+
+-
+
+192
+.168.10.222:7000
+
+https://grafana.com/api/dashboards/10465/revisions/4/download
+
+二、kafka集群部署
+
+1、安装部署集群
+
+1）基础准备
+
+2) kafka集群配置
+
+2.1）通用配置
+
+2.2)
+分节点配置
+
+2.3) 启动kafka集群
+
+2.4)kafka测试
+
+2.5）
+kafka管理界面 kafka-eagle
+
+●
+源码：
+https://github.com/smartloli/kafka-eagle/
+
+●
+官网：
+https://www.kafka-eagle.org/
+
+●
+下载：
+http://download.kafka-eagle.org/
+
+●
+安装文档：
+https://docs.kafka-eagle.org/2.env-and-install
+
+修改Kafka-Eagle配置文件
+
+启动kafka-eagle
+
+2、prometheus+grafana监控kafka集群
+
+第一种方式：
+通过安装kafka_exporter
+
+3、filebeat+kafka
+
+​
+
+If you get gains，please give a like
+

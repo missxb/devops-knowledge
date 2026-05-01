@@ -1,0 +1,318 @@
+
+
+项目十五：.NET Core 容器化
+
+## 
+项目十五：.NET Core 容器化
+
+Back to document
+
+一、 挂载源代码
+
+为了在宿主机上创建.NET Core 项目，这个时候我们就需要在Linux宿主机上安装.NET Core SDK
+
+1）linux宿主机安装.NET Core SDK
+
+​
+Shell
+Run Code
+Copy
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+rpm
+--import
+https://packages.microsoft.com/keys/microsoft.asc
+sh
+
+-c
+
+'echo -e "[packages-microsoft-com-prod]\nname=packages-microsoft-com-prod \nbaseurl= https://packages.microsoft.com/yumrepos/microsoft-rhel7.3-prod\nenabled=1\ngpgcheck=1\ngpgkey=https://packages.microsoft.com/keys/microsoft.asc" > /etc/yum.repos.d/dotnetdev.repo'
+yum install libunwind libicu dotnet-sdk-2.1.3
+-y
+
+#安装完毕后，我们依次执行以下命令创建一个.NET Core MVC项目：
+mkdir
+demo
+cd
+demo/
+dotnet new
+--help
+dotnet new mvc
+-n
+hellodocker.web
+cd
+hellodocker.web/
+#启动.NET Core MVC项目
+dotnet run
+
+2) 挂载宿主机项目到容器中
+
+把hellodocker.web目录挂载到容器里
+
+​
+Shell
+Run Code
+Copy
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+[root@master01 ~]
+# docker run -it -p 80:80 -v $HOME/demo/hellodocker.web:/app microsoft/dotnet:latest
+root@b35b51790d55:/
+# ls /app/
+Controllers  Startup.cs			   appsettings.json   hellodocker.web.csproj
+Models	     Views			   bin		      obj
+Program.cs   appsettings.Development.json  bundleconfig.json  wwwroot
+root@2a929aa38d2f:/app
+# dotnet run
+warn: Microsoft.AspNetCore.DataProtection.KeyManagement.XmlKeyManager[35]
+No XML encryptor configured. Key {edad0f2c-5584-4f25-957d-0c01a39439e7} may be persisted to storage
+in
+unencrypted form.
+Hosting environment: Production
+Content root path: /app
+Now listening on: http://[::]:80
+Application started. Press Ctrl
++
+C to shut down.
+3) 借助Dockerfile,制作镜像
+
+​
+Shell
+Run Code
+Copy
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+/确保进入我们创建的MVC项目目录中去
+$ cd
+
+$HOME
+/demo/HelloDocker.Web
+
+cat
+>Dockerfile
+<<-EOF
+FROM microsoft/dotnet:latest
+WORKDIR /app
+COPY . /app
+RUN dotnet restore
+EXPOSE 80
+ENV ASPNETCORE_URLS http://*:80
+ENTRYPOINT ["dotnet","run"]
+EOF
+
+​
+99
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+[root@master01 hellodocker.web]
+# docker build -t hellodocker.web .
+Sending build context to Docker daemon
+3
+.61MB
+Step
+1
+/7 : FROM microsoft/dotnet:latest
+
+---
+> f1c0998716e6
+Step
+2
+/7 : WORKDIR /app
+
+---
+> Running
+in
+257be90d32b4
+Removing intermediate container 257be90d32b4
+
+---
+> 7718f386110c
+Step
+3
+/7 : COPY . /app
+
+---
+> e478d7a452d2
+Step
+4
+/7 : RUN dotnet restore
+
+---
+> Running
+in
+fe8e70f6fdd4
+Restore completed
+in
+
+6
+.38 sec
+for
+/app/hellodocker.web.csproj.
+Restore completed
+in
+
+7
+.99 sec
+for
+/app/hellodocker.web.csproj.
+Removing intermediate container fe8e70f6fdd4
+
+---
+> 0f856348a050
+Step
+5
+/7 : EXPOSE
+80
+
+---
+> Running
+in
+0dfdbc626d4e
+Removing intermediate container 0dfdbc626d4e
+
+---
+> e517017cd838
+Step
+6
+/7 : ENV ASPNETCORE_URLS http://*:80
+
+---
+> Running
+in
+1826bfdaaee2
+Removing intermediate container 1826bfdaaee2
+
+---
+> cb1debab257e
+Step
+7
+/7 : ENTRYPOINT [
+"dotnet"
+,
+"run"
+]
+
+---
+> Running
+in
+8567af4f3b93
+Removing intermediate container 8567af4f3b93
+
+---
+> e4d2e231e364
+Successfully built e4d2e231e364
+Successfully tagged hellodocker.web:latest
+[root@master01 hellodocker.web]
+#
+
+[root@master01 hellodocker.web]
+# docker run -itd -p 85:80 hellodocker.web:latest
+8b8ce30eda804c18540f3105b833dbad01fdfe6119ebb8e219e381dac30c3306
+[root@master01 hellodocker.web]
+# docker ps |grep 8b8c
+
+.net5在docker如何运行
+
+把.net5程序放到一个盒子里运行，
+
+​
+9
+1
+2
+3
+4
+5
+6
+7
+8
+9
+
+FROM mcr.microsoft.com/dotnet/aspnet:5.0-buster-slim
+WORKDIR /app
+COPY . /app
+RUN dotnet restore
+EXPOSE
+80
+
+443
+ENV ASPNETCORE_URLS http://*:80
+ENTRYPOINT [
+"dotnet"
+,
+"run"
+]
+EOF
+​
+
+If you get gains，please give a like
+

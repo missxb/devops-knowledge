@@ -1,0 +1,302 @@
+
+
+项目六：基于二进制安装 kubernetes1.19.3
+
+## 
+项目六：基于二进制安装 kubernetes1.19.3
+
+Back to document
+一、角色划分
+
+主机名
+
+IP地址
+
+用途
+
+主要部署软件
+
+k8s-master01
+
+192.168.31.59
+
+Master
+
+Etcd、Kube-apiserver、Kube-controller-manager
+Kube-scheduler、Docker、kubelet、kubectl
+
+k8s-master02
+
+192.168.31.60
+
+Master
+
+Etcd、Kube-apiserver、Kube-controller-manager
+Kube-scheduler、Docker、kubelet、kubectl
+
+k8s-master03
+
+192.168.31.61
+
+Master
+
+Etcd、Kube-apiserver、Kube-controller-manager
+Kube-scheduler、Docker、kubelet、kubectl
+
+k8s-node01
+
+192.168.31.62
+
+Worker
+
+Docker、Kubelet、Kube-proxy
+
+k8s-node02
+
+192.168.31.63
+
+Worker
+
+Docker、Kubelet、Kube-proxy
+
+Haproxy01
+
+192.168.31.92
+
+Haproxy
+
+Keepalived+Haproxy
+
+Haproxy02
+
+192.168.31.93
+
+Haproxy
+
+Keepalived+Haproxy
+
+192.168.31.99
+
+VIP
+
+二、集群节点拓扑图
+
+三、
+服务器软/硬件要求
+
+1）软件
+
+​
+Bash
+Run Code
+Copy
+9
+1
+2
+3
+4
+Haproxy
+1
+.8.23-5.el8
+Keepalived
+2
+.0.10-11.el8_3.1
+操作系统       CentOS8.2
+内核版本
+4
+.18.0-240.el8.x86_64
+2）硬件
+
+​
+9
+1
+2
+3
+前端负载均衡： CPU：4核，内存：8G ， 硬盘：40G系统盘
++
+100G数据盘
+Master：      CPU：4核，内存：8G ， 硬盘：40G系统盘
++
+200G数据盘
+Worker：      CPU：16核，内存：32G，硬盘： 40G系统盘
++
+500G数据盘
+四、服务器内核版本升级（
+CentOS8以上的系统忽略
+）
+
+五、
+准备群集环境
+
+操作范围：在所有节点配置
+
+1）配置主机名和hosts文件
+
+2) 防火墙配置
+
+3）配置软件源及安装基础软件包
+
+4）配置时间同步
+
+5）关闭交换分区
+
+6) 配置Limit
+
+7) 修改内核参数
+
+8）开启ipvs
+
+9) 配置Master01节点免密钥登录其他节点
+
+10）准备kubernetes1.19二进制包
+(在master01上操作）
+
+六、安装Docker
+
+操作范围：所有Master节点和Node节点
+
+1) 配置yum环境
+
+2) 准备一块独立的数据盘，然后格式化,挂载到/data目录下
+
+3）安装docker-ce
+
+4）配置Docker-ce
+
+5) 启动Docker-ce
+
+七、部署etcd集群（在3台master节点安装）
+
+1）证书生成
+
+生成证书的方式：
+
+●
+Easy-Rsa：
+基于shell的简单CA实用程序；
+
+●
+Openssl：
+一套开源软件，SSL密码库工具，提供了一个通用、健壮、功能完备的工具套件，用以支持SSL/TLS 协议的实现。
+
+●
+CFSSL：
+是CloudFlare开源的一款PKI/TLS工具。 CFSSL包含一个命令行工具和一个用于签名，验证并且捆绑TLS证书的HTTP API服务。 使用Go语言编写。
+
+2）软件下载并安装
+
+3) 配置etcd集群（3节点）
+
+4）启动etcd服务并查看集群
+
+八、部署高可用组件 （haproxy01、haproxy02）
+
+1）安装haproxy和keepalived
+
+2) 配置haproxy （haproxy01、haproxy02）
+
+3）启动haproxy服务（haproxy01、haproxy02）
+
+4）配置keepalived配置文件（haproxy01、haproxy02每个节点不一样）
+
+5）启动keepalived服务
+
+九、配置Kubernetes（Master节点）
+
+1）生成kubernetes证书和生成对应的kubeconfig文件（master01节点操作）
+
+2）配置kubeconfig文件
+
+3)把生成的证书及kubeconfig文件拷贝到其他master节点
+
+十、kubernetes系统组件配置
+
+1) 所有节点创建相关目录(master和worker)
+
+2）配置kube-apiserver服务 (3台master节点）
+
+所有master节点创建kube-apiserver.service
+
+3)  启动kube-apiserver (3台master节点）
+
+4）配置kube-controller-manager服务(3台master节点）
+
+5) 启动
+kube-controller-manager服务
+(3台master节点）
+
+6) 配置kube-scheduler服务(3台master节点）
+
+7) 启动kube-scheduler服务(3台master节点）
+
+8) 安装TLS Bootstrapping自动颁发证书 (master01)
+
+十一、部署Kubelet
+
+1）从master01上拷贝证书到其他节点
+
+2) 所有节点创建相关目录（包括master节点也创建）
+
+3) 创建kubelet.service文件
+
+4) 创建10-kubelet.conf文件
+
+5）创建kubelet-conf.yml文件
+
+6）启动kubelet
+
+十二、部署kube-proxy
+
+1）准备kube-proxy.conf文件
+
+2) 准备
+kube-proxy.service
+文件
+
+3) 准备kube-proxy.yaml文件 （master01）
+
+4) 部署kube-proxy （master01节点）
+
+5）启动kube-proxy （master和worker所有节点）
+
+十三、安装calico服务 （master01操作）
+
+注意： 如果镜像版本，Pod地址段变，请修改calico.yml文件
+- name: CALICO_IPV4POOL_CIDR
+value: "10.244.0.0/16"
+
+yaml文件都放在git仓库里，根据需求更改
+
+十四、部署coredns服务（master01操作）
+
+修改文件，启动2个coredns，默认为1个
+
+十五、部署metrics server （master01操作）
+
+十六、部署ingress-nginx （master01操作）
+
+1)安装helm
+
+2) 让ingress-nginx运行到指定节点
+
+3) 修改ingress-nginx的values.yml
+
+3) 部署ingress-nginx
+
+十七、部署dashboard2.0 (master01)
+
+1）生成证书
+
+2) 执行recommended.yaml安装dashborad
+
+3) 创建管理员token，可以查看任何空间权限
+
+4) 配置ingress使用域名访问dashboard
+
+​
+
+1 like
+
+- 
+1
+
